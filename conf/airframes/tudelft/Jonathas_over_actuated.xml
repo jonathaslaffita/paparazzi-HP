@@ -278,7 +278,7 @@
 
   <section name="SIMULATOR" prefix="NPS_">
     <define name="ACTUATOR_NAMES" value="ne_motor,sw_motor,nw_motor,se_motor, ws_motor, es_motor, ss_motor" type="string[]"/>
-    <define name="JSBSIM_MODEL" value="simple_x_quad" type="string"/>
+    <define name="JSBSIM_MODEL" value="Jonathas_over_actuated" type="string"/>
     <define name="SENSORS_PARAMS" value="nps_sensors_params_default.h" type="string"/>
     <!-- mode switch on joystick channel 5 (axis numbering starting at zero) -->
     <define name="NO_MOTOR_MIXING" value="TRUE"/>
