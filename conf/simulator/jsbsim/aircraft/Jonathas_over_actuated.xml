@@ -245,7 +245,7 @@
       <function>
         <product>
           <property>fcs/ss_motor</property>
-          <value> 0.0 </value>
+          <value> 0.84 </value>
         </product>
       </function>
       <location unit="IN">
@@ -254,7 +254,7 @@
         <z>0</z>
       </location>
       <direction>
-        <x>0</x>
+        <x>1</x>
         <y>0</y>
         <z>0</z>
       </direction>
@@ -423,7 +423,7 @@
       </direction>
     </force>
 
-    <force name="ws_couple1" frame="BODY" unit="LBS">
+    <!-- <force name="ws_couple1" frame="BODY" unit="LBS">
       <function>
         <product>
           <property>fcs/nw_motor</property>
@@ -535,7 +535,7 @@
         <y>0</y>
         <z>1</z>
       </direction>
-    </force>
+    </force> -->
 
   </external_reactions>
 

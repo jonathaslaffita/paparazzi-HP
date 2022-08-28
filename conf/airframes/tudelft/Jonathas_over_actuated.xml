@@ -44,7 +44,7 @@
         <define name="FILE_LOGGER_PATH" value="/home/jonathas/Documents"/>
       </module>
 
-      <define name="RADIO_TH_HOLD"     value="5"/> 
+      <define name="RADIO_TH_HOLD"     value="-10"/> 
       <!-- <define name="RADIO_KILL_SWITCH" value="0"/> -->
     </target>
 
@@ -73,6 +73,8 @@
     <module name="guidance" type="indi">
       <define name="GUIDANCE_INDI_POS_GAIN" value="0.2"/>
       <define name="GUIDANCE_INDI_SPEED_GAIN" value="1.0"/>
+      <define name="GUIDANCE_INDI_RC_DEBUG" value="TRUE"/>
+      <!-- <define name="GUIDANCE_INDI_OVERACT_SIDE_BASE" value="0.5 * MAX_PPRZ"/> -->
       <!-- <define name="GUIDANCE_INDI_THRUST_DYNAMICS" value="0.0354"/> -->
     </module>
 
@@ -108,7 +110,7 @@
     <servo name="BOTTOM_LEFT" no="1" min="1000" neutral="1150" max="2000"/>
     <servo name="LEFT_SIDE" no="4" min="1000" neutral="1150" max="2000"/> 
     <servo name="RIGHT_SIDE" no="5" min="1000" neutral="1150" max="2000"/> 
-    <servo name="BACK_SIDE" no="6" min="1000" neutral="1600" max="2000"/> 
+    <servo name="BACK_SIDE" no="6" min="1000" neutral="1500" max="2000"/> 
 
   </servos>
 
@@ -139,7 +141,7 @@
     <set servo="TOP_LEFT"   value="autopilot_get_motors_on() ? actuators_pprz[2] : -MAX_PPRZ"/>
     <set servo="TOP_RIGHT"   value="autopilot_get_motors_on() ? actuators_pprz[0] : -MAX_PPRZ"/>
     <set servo="BOTTOM_RIGHT"   value="autopilot_get_motors_on() ? actuators_pprz[3] : -MAX_PPRZ"/>
-    <set servo="BOTTOM_LEFT"   value="autopilot_get_motors_on() ? actuators_pprz[01] : -MAX_PPRZ"/>
+    <set servo="BOTTOM_LEFT"   value="autopilot_get_motors_on() ? actuators_pprz[1] : -MAX_PPRZ"/>
     <set servo="LEFT_SIDE" value="($th_hold? -9600 : actuators_pprz[4])"/>
     <set servo="RIGHT_SIDE" value="($th_hold? -9600 : actuators_pprz[5])"/>
     <set servo="BACK_SIDE" value="($th_hold? 0 : actuators_pprz[6])"/>
@@ -264,11 +266,12 @@
     <define name="REF_MAX_SPEED" value="10"/>
     <define name="GUIDANCE_HEADING_IS_FREE" value="TRUE"/>
     <define name="MAX_BANK" value="30" unit="deg"/>
-    <define name="USE_SPEED_REF" value="TRUE"/>
+    <!-- <define name="USE_SPEED_REF" value="TRUE"/> -->
     <define name="PGAIN" value="60"/>
     <define name="DGAIN" value="100"/>
     <define name="AGAIN" value="0"/>
     <define name="IGAIN" value="20"/>
+
   </section>
 
   <!-- <section name="AHRS" prefix="AHRS_">

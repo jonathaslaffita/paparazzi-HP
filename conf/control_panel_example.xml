@@ -40,16 +40,6 @@
      <program name="GCS"/>
    </session>
 
-   <session name="Flight USB-XBee-API@57600">
-      <program name="Data Link">
-        <arg flag="-d" constant="/dev/paparazzi/xbee"/>
-        <arg flag="-transport" constant="xbee"/>
-        <arg flag="-s" constant="57600"/>
-      </program>
-      <program name="Server"/>
-      <program name="GCS"/>
-    </session>
-
     <session name="Flight USB-serial Redundant">
       <program name="Server"/>
       <program name="GCS"/>
@@ -64,26 +54,6 @@
         <arg flag="-redlink"/>
       </program>
       <program name="Link Combiner"/>
-    </session>
-
-    <session name="SupperBitRF">
-      <program name="Data Link">
-        <arg flag="-d" constant="/dev/ttyACM0"/>
-      </program>
-      <program name="Server"/>
-      <program name="GCS"/>
-      <program name="Messages"/>
-    </session>
-
-    <session name="SupperBitRF cable telemetry">
-      <program name="Data Link">
-        <arg flag="-d" constant="/dev/ttyACM1"/>
-        <arg flag="-s" constant="57600"/>
-      </program>
-      <program name="Server"/>
-      <program name="GCS"/>
-      <program name="Messages"/>
-      <program name="Messages"/>
     </session>
 
     <session name="Messages and Settings">
