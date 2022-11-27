@@ -122,9 +122,9 @@
     <property>fcs/sw_motor</property>
     <property>fcs/nw_motor</property>
     <property>fcs/ws_motor</property>
-    <property>fcs/es_motor</property>
     <property>fcs/ss_motor</property>
-
+    <property>fcs/es_motor</property>
+    
     <!-- First the lift forces produced by each propeller -->
 
     <force name="ne_motor" frame="BODY" unit="LBS">

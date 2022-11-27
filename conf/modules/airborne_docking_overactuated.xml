@@ -1,0 +1,26 @@
+<!DOCTYPE module SYSTEM "module.dtd">
+<module name="airborne_docking_overactuated" dir="airborne_docking" task="default">
+  <doc>
+    <description>Airborne docking module for relative setpoint formulation and acceleration command</description>
+  </doc>
+  <settings>
+    <!-- <dl_settings>
+      <dl_settings name="OrangeAvoiderGuided">
+         <dl_setting var="oag_color_count_frac" min="0" step="0.01" max="0.5"/>
+         <dl_setting var="oag_floor_count_frac" min="0" step="0.01" max="0.5"/>
+         <dl_setting var="oag_max_speed" min="0" step="0.1" max="1"/>
+         <dl_setting var="oag_heading_rate" min="0" step="5" max="45" unit="rad" alt_unit="deg"/>
+      </dl_settings>
+    </dl_settings> -->
+  </settings>
+  <header>
+    <file name="airborne_docking_overactuated.h"/>
+  </header>
+  <init fun="airborne_docking_init()"/>
+  <periodic fun="airborne_docking_periodic()" freq="500" />
+  <datalink message="REMOTE_GPS_SMALL" fun="gps_other_ac_datalink_parse_REMOTE_GPS_SMALL(buf)"/>
+  <!-- <event fun="qwe()"/> -->
+  <makefile>
+    <file name="airborne_docking_overactuated.c"/>
+  </makefile>
+</module>

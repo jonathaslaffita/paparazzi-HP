@@ -72,20 +72,22 @@ float guidance_indi_speed_gain = 1.8;
 #define GUIDANCE_INDI_ACCEL_SP_ID ABI_BROADCAST
 #endif
 
-static void get_overactuator_state(void);
+
 int num_overact = 3;
-float overact_dyn[3] = {0.02, 0.02, 0.02};
+float overact_dyn[3] = {0.0697, 0.0697, 0.0697};
 float overactuator_state[3];
 float overactuated_du[3];
 float overactuated_u[3];
 float overactuated_command[3];
 float overactuated_command_bounded[3] = {0 , 0 , 0 };
+float overactuator_state_filt_vect[3];
+struct FloatVect3 a_actual = {0.0,0.0,0.0};
 
 
 #ifdef GUIDANCE_INDI_OVERACT_SIDE_BASE
 float guidance_indi_overact_side_base = GUIDANCE_INDI_OVERACT_SIDE_BASE;
 #else
-float guidance_indi_overact_side_base = 0.1 * MAX_PPRZ;
+float guidance_indi_overact_side_base = 0.2 * MAX_PPRZ;
 #endif
  
 
@@ -114,7 +116,7 @@ static void guidance_indi_filter_thrust(void);
 #ifdef STABILIZATION_INDI_FILT_CUTOFF
 #define GUIDANCE_INDI_FILTER_CUTOFF STABILIZATION_INDI_FILT_CUTOFF
 #else
-#define GUIDANCE_INDI_FILTER_CUTOFF 3.0
+#define GUIDANCE_INDI_FILTER_CUTOFF 2.0
 #endif
 #endif
 
@@ -123,10 +125,12 @@ Butterworth2LowPass filt_accel_ned[3];
 Butterworth2LowPass roll_filt;
 Butterworth2LowPass pitch_filt;
 Butterworth2LowPass thrust_filt;
+Butterworth2LowPass overactuator_lowpass_filters[3];
+
 
 struct FloatMat33 Ga;
 struct FloatMat33 Ga_inv;
-struct FloatVect3 control_increment; // [dtheta, dphi, dthrust]
+struct FloatVect3 control_increment; // [actuator 5,6,7]
 
 float filter_cutoff = GUIDANCE_INDI_FILTER_CUTOFF;
 float guidance_indi_max_bank = GUIDANCE_H_MAX_BANK;
@@ -134,12 +138,36 @@ float guidance_indi_max_bank = GUIDANCE_H_MAX_BANK;
 float time_of_accel_sp_2d = 0.0;
 float time_of_accel_sp_3d = 0.0;
 
+
 struct FloatEulers guidance_euler_cmd;
 float thrust_in;
 
 static void guidance_indi_propagate_filters(struct FloatEulers *eulers);
 static void guidance_indi_calcG(struct FloatMat33 *Gmat);
 static void guidance_indi_calcG_yxz(struct FloatMat33 *Gmat, struct FloatEulers *euler_yxz);
+static void get_overactuator_state(void);
+
+
+#if PERIODIC_TELEMETRY
+#include "modules/datalink/telemetry.h"
+static void send_guidance_indi(struct transport_tx *trans, struct link_device *dev)
+{
+  pprz_msg_send_GUIDANCE_INDI(trans, dev, AC_ID,
+                              &indi_accel_sp.x,
+                              &indi_accel_sp.y,
+                              &indi_accel_sp.z,
+                              &sp_accel.x,
+                              &sp_accel.y,
+                              &sp_accel.z,
+                              &control_increment.x,
+                              &control_increment.y,
+                              &overactuated_u[0],
+                              &overactuated_u[1],
+                              &a_actual.x,
+                              &a_actual.y,
+                              &a_actual.z);
+}
+#endif
 
 /**
  * @brief Init function
@@ -147,6 +175,10 @@ static void guidance_indi_calcG_yxz(struct FloatMat33 *Gmat, struct FloatEulers 
 void guidance_indi_init(void)
 { AbiBindMsgACCEL_SP(GUIDANCE_INDI_ACCEL_SP_ID, &accel_sp_ev, accel_sp_cb);
  
+#if PERIODIC_TELEMETRY
+  register_periodic_telemetry(DefaultPeriodic, PPRZ_MSG_ID_GUIDANCE_INDI, send_guidance_indi);
+#endif
+
 }
 
 /**
@@ -155,17 +187,27 @@ void guidance_indi_init(void)
  */
 void guidance_indi_enter(void)
 {
+  overactuated_u[0] = 0;
+  overactuated_u[1] = 0;
+  overactuated_u[2] = 0;
   thrust_in = stabilization_cmd[COMMAND_THRUST];
   thrust_act = thrust_in;
 
   float tau = 1.0 / (2.0 * M_PI * filter_cutoff);
+  float tau1 = 1.0 / (2.0 * M_PI * filter_cutoff);
   float sample_time = 1.0 / PERIODIC_FREQUENCY;
   for (int8_t i = 0; i < 3; i++) {
-    init_butterworth_2_low_pass(&filt_accel_ned[i], tau, sample_time, 0.0);
+  init_butterworth_2_low_pass(&filt_accel_ned[i], tau, sample_time, 0.0);
   }
   init_butterworth_2_low_pass(&roll_filt, tau, sample_time, stateGetNedToBodyEulers_f()->phi);
   init_butterworth_2_low_pass(&pitch_filt, tau, sample_time, stateGetNedToBodyEulers_f()->theta);
   init_butterworth_2_low_pass(&thrust_filt, tau, sample_time, thrust_in);
+
+  for (int8_t i = 0; i < 2; i++) {
+    init_butterworth_2_low_pass(&overactuator_lowpass_filters[i], tau1, sample_time, guidance_indi_overact_side_base);
+  }
+
+  init_butterworth_2_low_pass(&overactuator_lowpass_filters[2], tau1, sample_time, 0.0);
 }
 
 /**
@@ -181,6 +223,13 @@ void guidance_indi_run(float *heading_sp)
 
   //filter accel to get rid of noise and filter attitude to synchronize with accel
   guidance_indi_propagate_filters(&eulers_yxz);
+
+  // Propagate actuator filters
+  get_overactuator_state();
+  for (int8_t i = 0; i < 3; i++) {
+    update_butterworth_2_low_pass(&overactuator_lowpass_filters[i], overactuator_state[i]);
+    overactuator_state_filt_vect[i] = overactuator_lowpass_filters[i].o[0];
+  }
 
   //Linear controller to find the acceleration setpoint from position and velocity
   float pos_x_err = POS_FLOAT_OF_BFP(guidance_h.ref.pos.x) - stateGetPositionNed_f()->x;
@@ -221,22 +270,25 @@ void guidance_indi_run(float *heading_sp)
 #warning "GUIDANCE_INDI_RC_DEBUG lets you control the accelerations via RC, but disables autonomous flight!"
   //for rc control horizontal, rotate from body axes to NED
   float psi = stateGetNedToBodyEulers_f()->psi;
-  float rc_x = -(radio_control.values[RADIO_PITCH] / 9600.0) * 8.0;
-  float rc_y = (radio_control.values[RADIO_ROLL] / 9600.0) * 8.0;
-  sp_accel.x =  rc_x ;
-  sp_accel.y =  rc_y;
+  float rc_x = -(radio_control.values[RADIO_PITCH] / 9600.0) * 6.0;
+  float rc_y = (radio_control.values[RADIO_ROLL] / 9600.0) * 6.0;
+  sp_accel.x = cosf(psi) * rc_x - sinf(psi) * rc_y;
+  sp_accel.y = sinf(psi) * rc_x + cosf(psi) * rc_y;
 
   //for rc vertical control
-  sp_accel.z = -(radio_control.values[RADIO_THROTTLE] - 4500) * 8.0 / 9600.0;
+  // sp_accel.z = -(radio_control.values[RADIO_THROTTLE] - 4500) * 8.0 / 9600.0;
 #endif
 
   //Calculate matrix of partial derivatives
-  guidance_indi_calcG_yxz(&Ga, &eulers_yxz);    //can probably be removed
+  guidance_indi_calcG(&Ga);    
 
   //Invert this matrix
   MAT33_INV(Ga_inv, Ga);
 
   struct FloatVect3 a_diff = { sp_accel.x - filt_accel_ned[0].o[0], sp_accel.y - filt_accel_ned[1].o[0], sp_accel.z - filt_accel_ned[2].o[0]};
+  a_actual.x= filt_accel_ned[0].o[0];
+  a_actual.y= filt_accel_ned[1].o[0];
+  a_actual.z= filt_accel_ned[2].o[0];
 
   //Bound the acceleration error so that the linearization still holds
   Bound(a_diff.x, -6.0, 6.0);
@@ -256,32 +308,38 @@ void guidance_indi_run(float *heading_sp)
   MAT33_VECT3_MUL(control_increment, Ga_inv, a_diff);
   AbiSendMsgTHRUST(THRUST_INCREMENT_ID, control_increment.z);
 
-  guidance_euler_cmd.theta =   0; //0.15 * guidance_indi_max_bank;
-  guidance_euler_cmd.phi = 0;
-  guidance_euler_cmd.psi = *heading_sp;
+  guidance_euler_cmd.theta = (radio_control.values[RADIO_PITCH] / 9600.0) * guidance_indi_max_bank; // * 0.2;
+  guidance_euler_cmd.phi = 0;   //roll_filt.o[0] + control_increment.y;
+  guidance_euler_cmd.psi =  *heading_sp;
+  
+  
+  
+  overactuated_u[0] = overactuator_state_filt_vect[0] + control_increment.y;
+  overactuated_u[1] = overactuator_state_filt_vect[1] + control_increment.y;
+  overactuated_u[2] = 0; //overactuator_state_filt_vect[2] + control_increment.x; //overactuator_state_filt_vect[2] + control_increment.x;
 
-  overactuated_u[0] += control_increment.y;
-  overactuated_u[1] += control_increment.y;
-  overactuated_u[2] += control_increment.x;
+  // overactuated_u[0] +=  control_increment.y;
+  // overactuated_u[1] +=  control_increment.y;
+  // overactuated_u[2] +=  control_increment.x;
 
 
+  PRINT(" %f %f %f \n", overactuated_u[0], overactuated_u[1], overactuated_u[2]);
+  
 uint8_t i;
   for (i = 0; i < num_overact-1; i++) {
-    BoundAbs(overactuated_u[i], MAX_PPRZ * 0.2 - guidance_indi_overact_side_base);
+    BoundAbs(overactuated_u[i], MAX_PPRZ  - guidance_indi_overact_side_base);
   } 
-  BoundAbs(overactuated_u[2],  0.3 * MAX_PPRZ);
+  BoundAbs(overactuated_u[2],   MAX_PPRZ);
 
 
   overactuated_command[0] = guidance_indi_overact_side_base + overactuated_u[0];
   overactuated_command[1] = guidance_indi_overact_side_base - overactuated_u[1];
-  overactuated_command[2] =  overactuated_u[2];                           //delete if not simulation
-  PRINT(" control_increment_x: %d  \n",  overactuated_u[0]); 
-  PRINT(" control_increment_y: %d  \n",  overactuated_u[2]);
- 
+  overactuated_command[2] =  0 ; //overactuated_u[2];                           //delete if not simulation
+  
   // Bound the inputs to the actuators
   for (i = 0; i < num_overact; i++) {                  //remove -1 if not siumulation   !!!!!
     overactuated_command_bounded[i] = overactuated_command[i];
-    // Bound(overactuated_command_bounded[i], 0.1 * MAX_PPRZ, MAX_PPRZ);      //vhrvk yhis
+    Bound(overactuated_command_bounded[i], 0, MAX_PPRZ);      //vhrvk yhis
   }
  
   
@@ -289,7 +347,7 @@ uint8_t i;
   for (i = 0; i < num_overact; i++) {
     actuators_pprz[i+4] = (int16_t) overactuated_command_bounded[i];
   } 
-  // PRINT(" 4: %d --- 5: %d ----- 6: %d \n", actuators_pprz[4], actuators_pprz[5], actuators_pprz[6]);   
+  PRINT(" 4: %d --- 5: %d ----- 6: %d \n", actuators_pprz[4], actuators_pprz[5], actuators_pprz[6]);   
 
 #ifdef GUIDANCE_INDI_SPECIFIC_FORCE_GAIN
   guidance_indi_filter_thrust();
@@ -299,13 +357,13 @@ uint8_t i;
   Bound(thrust_in, 0, 9600);
 
 #if GUIDANCE_INDI_RC_DEBUG
-  if (radio_control.values[RADIO_THROTTLE] < 300) {
+  if (radio_control.values[RADIO_THROTTLE] < 20) {
     thrust_in = 0;
   }
 #endif
 
   //Overwrite the thrust command from guidance_v
-  stabilization_cmd[COMMAND_THRUST] = thrust_in;
+  // stabilization_cmd[COMMAND_THRUST] = thrust_in;
 #endif
 
   //Bound euler angles to prevent flipping
@@ -343,7 +401,6 @@ void guidance_indi_propagate_filters(struct FloatEulers *eulers)
   update_butterworth_2_low_pass(&filt_accel_ned[0], accel->x);
   update_butterworth_2_low_pass(&filt_accel_ned[1], accel->y);
   update_butterworth_2_low_pass(&filt_accel_ned[2], accel->z);
-
   update_butterworth_2_low_pass(&roll_filt, eulers->phi);
   update_butterworth_2_low_pass(&pitch_filt, eulers->theta);
 }
@@ -356,49 +413,30 @@ void guidance_indi_propagate_filters(struct FloatEulers *eulers)
  * ddx = G*[dtheta,dphi,dT]
  */
 
-void guidance_indi_calcG_yxz(struct FloatMat33 *Gmat, struct FloatEulers *euler_yxz)
+UNUSED void guidance_indi_calcG_yxz(struct FloatMat33 *Gmat, struct FloatEulers *euler_yxz)
 {
+  struct FloatEulers *euler = stateGetNedToBodyEulers_f();
 
   float sphi = sinf(euler_yxz->phi);
   float cphi = cosf(euler_yxz->phi);
   float stheta = sinf(euler_yxz->theta);
   float ctheta = cosf(euler_yxz->theta);
+  float spsi = sinf(euler->psi);
+  float cpsi = cosf(euler->psi);
   //minus gravity is a guesstimate of the thrust force, thrust measurement would be better
   float T = -9.81;
 
-  RMAT_ELMT(*Gmat, 0, 0) = 2.f;
-  RMAT_ELMT(*Gmat, 1, 0) = 0;
-  RMAT_ELMT(*Gmat, 2, 0) = -stheta * cphi * T;
-  RMAT_ELMT(*Gmat, 0, 1) = 0;
-  RMAT_ELMT(*Gmat, 1, 1) = 2.f;
-  RMAT_ELMT(*Gmat, 2, 1) = -ctheta * sphi * T;
-  RMAT_ELMT(*Gmat, 0, 2) = //stheta * cphi;
-  RMAT_ELMT(*Gmat, 1, 2) = //-sphi;
-  RMAT_ELMT(*Gmat, 2, 2) = ctheta * cphi;
+  RMAT_ELMT(*Gmat, 0, 0) = 0.001; //x theta (backact)
+  RMAT_ELMT(*Gmat, 1, 0) = 0;//y  theta (backact)
+  RMAT_ELMT(*Gmat, 2, 0) = 0; //Z theta (backact) .
+  RMAT_ELMT(*Gmat, 0, 1) =  0; //x  phi  (sideact) .
+  RMAT_ELMT(*Gmat, 1, 1) = 0.001; //0.007; //y phi  (sideact) .
+  RMAT_ELMT(*Gmat, 2, 1) = 0;  //Z phi  (sideact) .
+  RMAT_ELMT(*Gmat, 0, 2) = 0;  //x thrust
+  RMAT_ELMT(*Gmat, 1, 2) = 0; //y thrust
+  RMAT_ELMT(*Gmat, 2, 2) = ctheta * cphi; //z thrust
 
 }
-
-// void guidance_indi_calcG_yxz(struct FloatMat33 *Gmat, struct FloatEulers *euler_yxz)
-// {
-
-//   float sphi = sinf(euler_yxz->phi);
-//   float cphi = cosf(euler_yxz->phi);
-//   float stheta = sinf(euler_yxz->theta);
-//   float ctheta = cosf(euler_yxz->theta);
-//   //minus gravity is a guesstimate of the thrust force, thrust measurement would be better
-//   float T = -9.81;
-
-//   RMAT_ELMT(*Gmat, 0, 0) = ctheta * cphi * T;
-//   RMAT_ELMT(*Gmat, 1, 0) = 0;
-//   RMAT_ELMT(*Gmat, 2, 0) = -stheta * cphi * T;
-//   RMAT_ELMT(*Gmat, 0, 1) = -stheta * sphi * T;
-//   RMAT_ELMT(*Gmat, 1, 1) = -cphi * T;
-//   RMAT_ELMT(*Gmat, 2, 1) = -ctheta * sphi * T;
-//   RMAT_ELMT(*Gmat, 0, 2) = stheta * cphi;
-//   RMAT_ELMT(*Gmat, 1, 2) = -sphi;
-//   RMAT_ELMT(*Gmat, 2, 2) = ctheta * cphi;
-
-// }
 
 /**
  * @param Gmat array to write the matrix to [3x3]
@@ -407,7 +445,8 @@ void guidance_indi_calcG_yxz(struct FloatMat33 *Gmat, struct FloatEulers *euler_
  * w.r.t. the NED accelerations for ZYX eulers
  * ddx = G*[dtheta,dphi,dT]
  */
-UNUSED void guidance_indi_calcG(struct FloatMat33 *Gmat)
+
+void guidance_indi_calcG(struct FloatMat33 *Gmat)
 {
 
   struct FloatEulers *euler = stateGetNedToBodyEulers_f();
@@ -418,17 +457,20 @@ UNUSED void guidance_indi_calcG(struct FloatMat33 *Gmat)
   float ctheta = cosf(euler->theta);
   float spsi = sinf(euler->psi);
   float cpsi = cosf(euler->psi);
+
   //minus gravity is a guesstimate of the thrust force, thrust measurement would be better
   float T = -9.81;
+  float b = 0.001;
+  float s = 0.001;
 
-  RMAT_ELMT(*Gmat, 0, 0) = (cphi * spsi - sphi * cpsi * stheta) * T;
-  RMAT_ELMT(*Gmat, 1, 0) = (-sphi * spsi * stheta - cpsi * cphi) * T;
-  RMAT_ELMT(*Gmat, 2, 0) = -ctheta * sphi * T;
-  RMAT_ELMT(*Gmat, 0, 1) = (cphi * cpsi * ctheta) * T;
-  RMAT_ELMT(*Gmat, 1, 1) = (cphi * spsi * ctheta) * T;
-  RMAT_ELMT(*Gmat, 2, 1) = -stheta * cphi * T;
-  RMAT_ELMT(*Gmat, 0, 2) = sphi * spsi + cphi * cpsi * stheta;
-  RMAT_ELMT(*Gmat, 1, 2) = cphi * spsi * stheta - cpsi * sphi;
+  RMAT_ELMT(*Gmat, 0, 0) = ctheta * cpsi * b; 
+  RMAT_ELMT(*Gmat, 1, 0) = (ctheta * spsi) * b;  
+  RMAT_ELMT(*Gmat, 2, 0) = -stheta * b;
+  RMAT_ELMT(*Gmat, 0, 1) = (sphi * stheta * cpsi - cphi * spsi) * s;
+  RMAT_ELMT(*Gmat, 1, 1) = (sphi * stheta * spsi +cphi * cpsi) * s;
+  RMAT_ELMT(*Gmat, 2, 1) = sphi * ctheta * s;
+  RMAT_ELMT(*Gmat, 0, 2) = (cphi * stheta * cpsi + sphi * spsi) * T;
+  RMAT_ELMT(*Gmat, 1, 2) = (cphi * stheta * spsi - sphi * cpsi) * T;
   RMAT_ELMT(*Gmat, 2, 2) = cphi * ctheta;
 }
 
@@ -463,14 +505,14 @@ void get_overactuator_state(void)
 
 //actuator dynamics
 int8_t i;
-float UNUSED prev_overactuator_state;
+float prev_overactuator_state;
 for (i = 0; i < num_overact; i++) {
   prev_overactuator_state = overactuator_state[i];
 
   overactuator_state[i] = overactuator_state[i]
                       + overact_dyn[i] * (overactuated_u[i] - overactuator_state[i]);
 
-// #ifdef STABILIZATION_INDI_ACT_RATE_LIMIT
+// #ifdef GUIDANCE_INDI_OVERACT_RATE_LIMIT
 //     if ((actuator_state[i] - prev_actuator_state) > act_rate_limit[i]) {
 //       actuator_state[i] = prev_actuator_state + act_rate_limit[i];
 //     } else if ((actuator_state[i] - prev_actuator_state) < -act_rate_limit[i]) {

@@ -63,7 +63,7 @@ static struct Int32Vect2 wind_estimate;
 static struct Int32Vect2 wind_estimate_high_res;
 static struct Int32Vect2 guidance_hybrid_ref_airspeed;
 
-static int32_t norm_sp_airspeed_disp;
+static int32_t norm_sp_airspeed_disp; 
 static int32_t heading_diff_disp;
 static int32_t omega_disp;
 static int32_t high_res_psi;

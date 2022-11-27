@@ -44,7 +44,7 @@
 
 // Delay before starting SD log
 #ifndef SDLOG_START_DELAY
-#define SDLOG_START_DELAY 30
+#define SDLOG_START_DELAY 10
 #endif
 
 // Auto-flush period (in seconds)

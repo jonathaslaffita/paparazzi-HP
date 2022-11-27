@@ -28,10 +28,11 @@
       <module name="flight_recorder"/>
 
 
-      <define name="RADIO_TH_HOLD"     value="RADIO_AUX2"/>
-      <define name="RADIO_FMODE"       value="RADIO_MODE"/> <!-- Throttle curve select -->
+      <define name="RADIO_TH_HOLD"     value="RADIO_AUX3"/>
+      <define name="RADIO_FMODE"       value="RADIO_AUX2"/> <!-- Throttle curve select -->
       <define name="RADIO_KILL_SWITCH" value="RADIO_AUX1"/>
-            
+      
+      <define name="USE_KILL_SWITCH_FOR_MOTOR_ARMING" value="TRUE"/> 
       
     </target>
 
@@ -60,11 +61,9 @@
     
     <module name="gps"           type="datalink"/>
 
-    <!-- <define name="USE_AHRS_GPS_ACCELERATIONS" value="TRUE"/> -->
-
-    <module name="airborne_docking_overactuated"/>
-
+    <define name="USE_AHRS_GPS_ACCELERATIONS" value="TRUE"/>
     
+
     <module name="ahrs" type="int_cmpl_quat">
       <define name="USE_MAGNETOMETER" value="FALSE"/>
       <define name="AHRS_USE_GPS_HEADING" value="TRUE"/>
@@ -79,17 +78,17 @@
     </module> -->
     
     
-    <module name="stabilization" type="indi">
+    <module name="stabilization" type="indi_simple">
       <!--define name="TILT_TWIST_CTRL" value="TRUE"/-->
     </module>
     
-    <module name="guidance" type="indi">
-      <define name="GUIDANCE_INDI_POS_GAIN" value="0.5"/>
-      <define name="GUIDANCE_INDI_SPEED_GAIN" value="1.8"/> 
-      <define name="GUIDANCE_INDI_RC_DEBUG" value="TRUE"/> 
-      <define name="GUIDANCE_INDI_OVERACT_SIDE_BASE" value="2070"/> 
+    <!-- <module name="guidance" type="indi">
+      <define name="GUIDANCE_INDI_POS_GAIN" value="1.0"/>
+      <define name="GUIDANCE_INDI_SPEED_GAIN" value="1.0"/>
+      <define name="GUIDANCE_INDI_RC_DEBUG" value="FALSE"/> -->
+      <!-- <define name="GUIDANCE_INDI_OVERACT_SIDE_BASE" value="0.5 * MAX_PPRZ"/> -->
       <!-- <define name="GUIDANCE_INDI_THRUST_DYNAMICS" value="0.0354"/> -->
-    </module> 
+    <!-- </module> -->
 
     <module name="air_data"/>
 
@@ -110,7 +109,7 @@
       <define name="IST8310_CHAN_Y_SIGN" value="-"/> -->
     </module>
    
-    <!-- <module name="motor_mixing"/> -->
+    <module name="motor_mixing"/> 
 
   </firmware>
 
@@ -119,18 +118,21 @@
     <servo name="TOP_RIGHT" no="0" min="1000" neutral="1150" max="2000"/>
     <servo name="BOTTOM_RIGHT" no="3" min="1000" neutral="1150" max="2000"/>
     <servo name="BOTTOM_LEFT" no="1" min="1000" neutral="1150" max="2000"/>
-    <servo name="LEFT_SIDE" no="4" min="1000" neutral="1150" max="2000"/> 
-    <servo name="RIGHT_SIDE" no="6" min="1000" neutral="1150" max="2000"/> 
-    <servo name="BACK_SIDE" no="5" min="1000" neutral="1000" max="2000"/> 
+
 
   </servos>
+
+  <section name="MIXING" prefix="MOTOR_MIXING_">
+    <!-- Time cross layout (X), with order NW (CW), NE (CCW), SE (CW), SW (CCW) -->
+    <define name="TYPE" value="QUAD_X"/>
+    <define name="REVERSE" value="TRUE"/>
+  </section>
 
   <commands>
     <axis name="ROLL"   failsafe_value="0"/>
     <axis name="PITCH"  failsafe_value="0"/>
     <axis name="YAW"    failsafe_value="0"/>
     <axis name="THRUST" failsafe_value="0"/>
-    <axis name="AUX1" failsafe_value="-9600"/>
   </commands>
 
   <rc_commands>
@@ -146,18 +148,11 @@
   </section> -->
 
   <command_laws>
-
-  <let var="th_hold"     value="Or(LessThan(RadioControlValues(RADIO_TH_HOLD), -4800), !autopilot_get_motors_on())"/>
-           
-    
-    <set servo="TOP_LEFT"   value="autopilot_get_motors_on() ? actuators_pprz[2] : -MAX_PPRZ"/>
-    <set servo="TOP_RIGHT"   value="autopilot_get_motors_on() ? actuators_pprz[0] : -MAX_PPRZ"/>
-    <set servo="BOTTOM_RIGHT"   value="autopilot_get_motors_on() ? actuators_pprz[3] : -MAX_PPRZ"/>
-    <set servo="BOTTOM_LEFT"   value="autopilot_get_motors_on() ? actuators_pprz[1] : -MAX_PPRZ"/>
-    <set servo="LEFT_SIDE" value="(autopilot_get_motors_on() ? ($th_hold? -MAX_PPRZ : actuators_pprz[4]) : -MAX_PPRZ)"/> <!--(autopilot_get_motors_on() ? ($th_hold? -MAX_PPRZ : actuators_pprz[6]) : -MAX_PPRZ)"/> -->
-    <set servo="RIGHT_SIDE" value="(autopilot_get_motors_on() ? ($th_hold? -MAX_PPRZ : actuators_pprz[5]) : -MAX_PPRZ)"/><!--(autopilot_get_motors_on() ? ($th_hold? -MAX_PPRZ : actuators_pprz[6]) : -MAX_PPRZ)"/> -->
-    <set servo="BACK_SIDE" value="(autopilot_get_motors_on() ? ($th_hold? -MAX_PPRZ : actuators_pprz[6]) : -MAX_PPRZ)"/><!--(autopilot_get_motors_on() ? ($th_hold? -MAX_PPRZ : actuators_pprz[6]) : -MAX_PPRZ)"/> -->
-        
+    <call fun="motor_mixing_run(autopilot_get_motors_on(),FALSE,values)"/>
+    <set servo="TOP_LEFT" value="motor_mixing.commands[MOTOR_FRONT_LEFT]"/>
+    <set servo="TOP_RIGHT" value="motor_mixing.commands[MOTOR_FRONT_RIGHT]"/>
+    <set servo="BOTTOM_RIGHT" value="motor_mixing.commands[MOTOR_BACK_RIGHT]"/>
+    <set servo="BOTTOM_LEFT" value="motor_mixing.commands[MOTOR_BACK_LEFT]"/>
   </command_laws>
 
   <section name="AIR_DATA" prefix="AIR_DATA_">
@@ -172,7 +167,7 @@
     
     
     <!-- Basic navigation settings -->
-    <define name="NAV_CLIMB_VSPEED" value="0.5"/>
+    <define name="NAV_CLIMB_VSPEED" value="3.5"/>
     <define name="NAV_DESCEND_VSPEED" value="-0.5"/>
     <define name="ARRIVED_AT_WAYPOINT" value="50.0"/>
 
@@ -184,20 +179,20 @@
  
   <section name="IMU" prefix="IMU_">
     <!-- Rotate the IMU -->
-    <define name="MPU_CHAN_X" value="1"/>
-    <define name="MPU_CHAN_Y" value="0"/>
+    <define name="MPU_CHAN_X" value="0"/>
+    <define name="MPU_CHAN_Y" value="1"/>
     <define name="MPU_CHAN_Z" value="2"/>
-    <define name="MPU_X_SIGN" value="1"/>
+    <define name="MPU_X_SIGN" value="-1"/>
     <define name="MPU_Y_SIGN" value="1"/>
-    <define name="MPU_Z_SIGN" value="-1"/> 
+    <define name="MPU_Z_SIGN" value="-1"/>
 
     <!-- Caliobrated in julianalaan 23 -->
     
-    <define name="ACCEL_X_NEUTRAL" value="363"/>
-    <define name="ACCEL_Y_NEUTRAL" value="-31"/>
+    <define name="ACCEL_X_NEUTRAL" value="-31"/>
+    <define name="ACCEL_Y_NEUTRAL" value="363"/>
     <define name="ACCEL_Z_NEUTRAL" value="-89"/>
-    <define name="ACCEL_X_SENS" value="4.633445833707747" integer="16"/>
-    <define name="ACCEL_Y_SENS" value="4.8869654800338065" integer="16"/>
+    <define name="ACCEL_X_SENS" value="4.8869654800338065" integer="16"/>
+    <define name="ACCEL_Y_SENS" value="4.633445833707747" integer="16"/>
     <define name="ACCEL_Z_SENS" value="4.846163737629737" integer="16"/>
 
     
@@ -222,7 +217,7 @@
     <!-- Define axis in hover frame -->
     <define name="BODY_TO_IMU_PHI"   value="0." unit="deg"/>
     <define name="BODY_TO_IMU_THETA" value="0." unit="deg"/>
-    <define name="BODY_TO_IMU_PSI"   value="0" unit="deg"/>
+    <define name="BODY_TO_IMU_PSI"   value="270" unit="deg"/>
   </section>
 
   <section name="STABILIZATION_ATTITUDE" prefix="STABILIZATION_ATTITUDE_">
@@ -236,30 +231,34 @@
   
   <section name="STABILIZATION_ATTITUDE_INDI" prefix="STABILIZATION_INDI_">
     <!-- control effectiveness -->
-    <!-- <define name="G1_P" value="0.0639"/>
-    <define name="G1_Q" value="0.0361"/>
-    <define name="G1_R" value="0.0022"/>
-    <define name="G2_R" value="0.1450"/> -->
-    <define name="G1_ROLL" value="{-20.7606f ,  15.3627f  ,20.9887f , -15.4449f}"/> <!-- "-20.8F, 18.f, 18.f , -18.f}"/> -->
-    <define name="G1_PITCH" value="{17.9935f , -18.1496f  , 16.7736f , -17.9439f}"/> 
-    <define name="G1_YAW" value="{-4.2426f  , -3.9362f ,  3.7505f   , 4.5076f}"/>
-    <define name="G1_THRUST" value="{-1.f, -1.f, -1.f, -1.f}"/>
+    <define name="G1_P" value="0.054405"/>
+    <define name="G1_Q" value="0.043375"/>
+    <define name="G1_R" value="0.004162"/>
+    <define name="G2_R" value="0.098569"/>
+
+    <!-- <define name="G1_ROLL" value="{-15.f, 15.f, 15.f , -15.f}"/>
+    <define name="G1_PITCH" value="{15.f , -15.f, 15.f, -15.f }"/>
+    <define name="G1_YAW" value="{-1.f, -1.f, 1.f, 1.f}"/>
+    <define name="G1_THRUST" value="{-.7f, -.7f, -.7f, -.7f}"/> -->
     <!--Counter torque effect of spinning up a rotor-->
-    <define name="G2" value="{ 0.0335f  , -0.0185f   ,-0.0167f  ,  0.0020f}"/>
+    <!-- <define name="G2" value="{ -60.f,   -60.f,   60.f,   60.f}"/> -->
 
     <!-- reference acceleration for attitude control -->
-    <define name="REF_ERR_P" value="300.0"/>
-    <define name="REF_ERR_Q" value="300.0"/>
-    <define name="REF_ERR_R" value="200.0"/>
-    <define name="REF_RATE_P" value="15"/>
-    <define name="REF_RATE_Q" value="15"/>
-    <define name="REF_RATE_R" value="15"/>
+    <define name="REF_ERR_P" value="600.0"/>
+    <define name="REF_ERR_Q" value="600.0"/>
+    <define name="REF_ERR_R" value="400.0"/>
+    <define name="REF_RATE_P" value="28.0"/>
+    <define name="REF_RATE_Q" value="28.0"/>
+    <define name="REF_RATE_R" value="18.0"/>
 
     <define name="ESTIMATION_FILT_CUTOFF" value="8.0"/>
     <define name="FILT_CUTOFF" value="8.0"/>
 
     <!-- first order actuator dynamics -->
-    <define name="ACT_DYN" value="{0.0697, 0.0697, 0.0697, 0.0697}"/>
+    <!-- <define name="ACT_DYN" value="{0.0697, 0.0697, 0.0697, 0.0697}"/> -->
+    <define name="ACT_DYN_P" value="0.0697"/>
+    <define name="ACT_DYN_Q" value="0.0697"/>
+    <define name="ACT_DYN_R" value="0.0697"/>
 
     <!-- Adaptive Learning Rate -->
     <define name="USE_ADAPTIVE" value="FALSE"/>
@@ -270,7 +269,7 @@
     <define name="HOVER_KP"    value="310"/>
     <define name="HOVER_KD"    value="130"/>
     <define name="HOVER_KI"    value="10"/>
-    <define name="NOMINAL_HOVER_THROTTLE" value="0.2"/>
+    <define name="NOMINAL_HOVER_THROTTLE" value="0.5"/>
     <define name="ADAPT_THROTTLE_ENABLED" value="TRUE"/>
   </section>
 
@@ -308,7 +307,7 @@
  
 
   <section name="SIMULATOR" prefix="NPS_">
-    <define name="ACTUATOR_NAMES" value="ne_motor,sw_motor,nw_motor,se_motor, ws_motor, es_motor, ss_motor," type="string[]"/>
+    <define name="ACTUATOR_NAMES" value="ne_motor,sw_motor,nw_motor,se_motor, ws_motor, es_motor, ss_motor" type="string[]"/>
     <define name="JSBSIM_MODEL" value="Jonathas_over_actuated" type="string"/>
     <define name="SENSORS_PARAMS" value="nps_sensors_params_default.h" type="string"/>
     <!-- mode switch on joystick channel 5 (axis numbering starting at zero) -->
@@ -320,7 +319,7 @@
   <section name="AUTOPILOT">
     <define name="MODE_MANUAL" value="AP_MODE_ATTITUDE_DIRECT"/>
     <define name="MODE_AUTO1"  value="AP_MODE_HOVER_Z_HOLD"/>
-    <define name="MODE_AUTO2"  value="AP_MODE_HOVER_Z_HOLD"/>            <!--  ="AP_MODE_GUIDEDvalue="AP_MODE_NAV"/> "/>  -->
+    <define name="MODE_AUTO2"  value="AP_MODE_NAV"/>            <!--  ="AP_MODE_GUIDED"/>  -->
     <define name="MODE_STARTUP"  value="AP_MODE_ATTITUDE_DIRECT"/>
   </section>
 
