@@ -17,7 +17,7 @@
     <file name="airborne_docking_overactuated.h"/>
   </header>
   <init fun="airborne_docking_init()"/>
-  <periodic fun="airborne_docking_periodic()" freq="500" />
+  <periodic fun="airborne_docking_periodic()" freq="50" autorun="TRUE"/>
   <datalink message="REMOTE_GPS_SMALL" fun="gps_other_ac_datalink_parse_REMOTE_GPS_SMALL(buf)"/>
   <!-- <event fun="qwe()"/> -->
   <makefile>

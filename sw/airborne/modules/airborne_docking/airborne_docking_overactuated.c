@@ -33,14 +33,14 @@
 #include "modules/datalink/datalink.h"
 #include "modules/datalink/downlink.h"
 #include "modules/radio_control/radio_control.h"
-
+#include "modules/gps/gps_datalink.h"
 
 
 //include "RELATIVE_POSE_CALCULATION.H"   ////NEEDED
 
 /// MY DEFINES
 #ifndef GUIDANCE_INDI_ACCEL_SP_ID
-#define GUIDANCE_INDI_ACCEL_SP_ID ABI_BROADCAST        //NEEDED?
+#define GUIDANCE_INDI_ACCEL_SP_ID ABI_BROADCAST      
 #endif
 
 #ifndef RELATIVE_POSE_ID
@@ -71,7 +71,7 @@ enum docking_state_t {                         //WHAT CAN I USE THIS FOR?
 
 // define settings
 int32_t flag;
-int32_t LEADER_AC_ID;
+int32_t LEADER_AC_ID = 6;
 struct FloatVect3 relative_position_NED;
 float relative_heading;                                        //rad? deg?
 float relative_position_error_threshold;                       // RELATIVE POSITION NED
@@ -91,15 +91,25 @@ struct FloatVect3 prev_error_to_setpoint_NED;
 struct FloatVect3 derrivative_error_to_setpoint_NED;
 float advance = -0.5;
 struct GpsState gps_leader_AC_datalink;
+struct Int32Vect3 AC_XYZ;
+struct Int32Vect3 AC_XYZ_SPEED;
+struct Int32Vect3 LEADER_AC_XYZ;
+struct Int32Vect3 LEADER_AC_XYZ_SPEED;
+struct FloatVect3 relative_position_xyz;
+
+/////// FOR GPS INITIALIZATION
+// struct LtpDef_i ltp_def;
+
+
                                                   //what else
 
 //initializes some global variables
-int IRLOCK = 0;
-int GOOD_PRECONTACT;
-int IRLOCK_confidence = -8;
+int32_t IRLOCK = 0;
+int32_t GOOD_PRECONTACT;
+int32_t IRLOCK_confidence = -8;
 enum docking_state_t docking_state = LOOKING_MANUAL;   // current state in state machine
 // static abi_event qwe_ev;
-
+int32_t ALIVE = 0;
 // DECLARATIONS OF FORMULAE
 void processrelativepose(void);
 void get_terminal_relative_sp(void);
@@ -108,13 +118,39 @@ void calc_accel_sp(void);
 // extern void gps_other_ac_datalink_parse_REMOTE_GPS_SMALL(uint8_t *buf);
 
 
+#if PERIODIC_TELEMETRY
+#include "modules/datalink/telemetry.h"
+static void send_airborne_docking(struct transport_tx *trans, struct link_device *dev)
+{
+  pprz_msg_send_AIRBORNE_DOCKING(trans, dev, AC_ID,
+                              &ALIVE,
+                              &LEADER_AC_XYZ.x,
+                              &LEADER_AC_XYZ.y,
+                              &LEADER_AC_XYZ.z,
+                              &AC_XYZ.x,
+                              &AC_XYZ.y,
+                              &AC_XYZ.z,
+                              &relative_position_NED.x,
+                              &relative_position_NED.y,
+                              &relative_position_NED.z);
+}
+#endif
+
+
 void airborne_docking_init(void)
 {
   // your init code here
+  // gps_datalink_init();
+  #if PERIODIC_TELEMETRY
+    register_periodic_telemetry(DefaultPeriodic, PPRZ_MSG_ID_AIRBORNE_DOCKING, send_airborne_docking);
+  #endif
+
   float heading  = stateGetNedToBodyEulers_f()->psi;    //getting heading
   // AbiBindMsgRELATIVE_POSE(ORANblahhblhaISUAL_DETECTION_ID, &color_detection_ev, color_detection_cb);  ///// receive  POSE?? in body frame
   // Abi messages bindings
   // AbiBindMsgACCEL_SP(QWE_ID, &qwe_ev, qwe_cb);       /// not needed!!?
+  
+
   
 }
 
@@ -123,6 +159,7 @@ void airborne_docking_periodic(void)
 {
 
   processrelativepose();
+  
 
   VERBOSE_PRINT("state: %d \n", docking_state);
 
@@ -206,7 +243,6 @@ void airborne_docking_periodic(void)
   }
 }
   
-
 /*
 * Function that calculates relative pose + RELATIVE STATES, finds the errors and calculates derrivatives including relative accelerations
 */
@@ -221,20 +257,26 @@ float leader_psi_diff = gps_leader_AC_datalink.course - psi;                    
 float psi_target = psi + leader_psi_diff;
 struct FloatRMat *matforrelativeNED = stateGetNedToBodyRMat_f();
 MAT33_TRANS(ROT_inv, *matforrelativeNED);
-MAT33_VECT3_MUL(relative_position_NED, ROT_inv, relative_position_bframe);
+AC_XYZ.x = stateGetPositionNed_i()->x;
+AC_XYZ.y = stateGetPositionNed_i()->y;
+AC_XYZ.z = stateGetPositionNed_i()->z;
+
+
+VECT3_DIFF(relative_position_xyz, LEADER_AC_XYZ, AC_XYZ);
+VECT3_SMUL(relative_position_xyz,relative_position_xyz,10);
+relative_position_NED = relative_position_xyz;                           //MAYBE SHIFT BY HEADING
+// MAT33_VECT3_MUL(relative_position_NED, ROT_inv, relative_position_bframe);   TO USE WITH BFRAME
 leader_relative_position_wanted_NED.x = relative_position_wanted.x * cosf(psi) - sinf(psi) * relative_position_wanted.y;
 leader_relative_position_wanted_NED.y = relative_position_wanted.y * sinf(psi) + cosf(psi) * relative_position_wanted.y;
 leader_relative_position_wanted_NED.z = relative_position_wanted.z;
 prev_error_to_setpoint_NED = error_to_setpoint_NED;
+
 VECT3_DIFF(error_to_setpoint_NED, relative_position_NED, leader_relative_position_wanted_NED);
 VECT3_DIFF(derrivative_error_to_setpoint_NED, error_to_setpoint_NED, prev_error_to_setpoint_NED);
 VECT3_SMUL(derrivative_error_to_setpoint_NED, derrivative_error_to_setpoint_NED, PERIODIC_FREQUENCY)
 
 transversal_error = sqrt((pow(error_to_setpoint_NED.x,2) + pow(error_to_setpoint_NED.y,2)));
 }
-
-
-
 
 /*
 * Function that calculates position setpoint in the terminal guidance (body_frame)
@@ -266,10 +308,11 @@ a_wanted.z = error_to_setpoint_NED.z * relative_position_P_GAIN.z + derrivative_
 
 }
 
-void parse_gps_datalink_small_2(int16_t heading, uint32_t pos_xyz, uint32_t speed_xyz, uint32_t tow)
+
+// Parse the REMOTE_GPS_SMALL datalink packet
+static void parse_gps_datalink_small_2(int16_t heading, uint32_t pos_xyz, uint32_t speed_xyz, uint32_t tow)
 {
   struct EnuCoor_i enu_pos, enu_speed;
-
 
   // Position in ENU coordinates
   enu_pos.x = (int32_t)((pos_xyz >> 21) & 0x7FF); // bits 31-21 x position in cm
@@ -282,12 +325,17 @@ void parse_gps_datalink_small_2(int16_t heading, uint32_t pos_xyz, uint32_t spee
   }
   enu_pos.z = (int32_t)(pos_xyz & 0x3FF); // bits 9-0 z position in cm
 
-  // Convert the ENU coordinates to ECEF
-  // ecef_of_enu_point_i(&gps_leader_AC_datalink.ecef_pos, &ltp_def, &enu_pos);
-  // SetBit(gps_leader_AC_datalink.valid_fields, GPS_VALID_POS_ECEF_BIT);
+  LEADER_AC_XYZ.x = enu_pos.x;
+  LEADER_AC_XYZ.y = enu_pos.y;
+  LEADER_AC_XYZ.z = enu_pos.z;
 
-  // lla_of_ecef_i(&gps_leader_AC_datalink.lla_pos, &gps_leader_AC_datalink.ecef_pos);
-  // SetBit(gps_leader_AC_datalink.valid_fields, GPS_VALID_POS_LLA_BIT);
+
+  // Convert the ENU coordinates to ECEF
+  ecef_of_enu_point_i(&gps_leader_AC_datalink.ecef_pos, &ltp_def, &enu_pos);
+  SetBit(gps_leader_AC_datalink.valid_fields, GPS_VALID_POS_ECEF_BIT);
+
+  lla_of_ecef_i(&gps_leader_AC_datalink.lla_pos, &gps_leader_AC_datalink.ecef_pos);
+  SetBit(gps_leader_AC_datalink.valid_fields, GPS_VALID_POS_LLA_BIT);
 
   enu_speed.x = (int32_t)((speed_xyz >> 21) & 0x7FF); // bits 31-21 speed x in cm/s
   if (enu_speed.x & 0x400) {
@@ -305,14 +353,14 @@ void parse_gps_datalink_small_2(int16_t heading, uint32_t pos_xyz, uint32_t spee
   VECT3_NED_OF_ENU(gps_leader_AC_datalink.ned_vel, enu_speed);
   SetBit(gps_leader_AC_datalink.valid_fields, GPS_VALID_VEL_NED_BIT);
 
-  // ecef_of_enu_vect_i(&gps_leader_AC_datalink.ecef_vel , &ltp_def , &enu_speed);
-  // SetBit(gps_leader_AC_datalink.valid_fields, GPS_VALID_VEL_ECEF_BIT);
+  ecef_of_enu_vect_i(&gps_leader_AC_datalink.ecef_vel , &ltp_def , &enu_speed);
+  SetBit(gps_leader_AC_datalink.valid_fields, GPS_VALID_VEL_ECEF_BIT);
 
-  // gps_leader_AC_datalink.gspeed = (int16_t)FLOAT_VECT2_NORM(enu_speed);
-  // gps_leader_AC_datalink.speed_3d = (int16_t)FLOAT_VECT3_NORM(enu_speed);
+  gps_leader_AC_datalink.gspeed = (int16_t)FLOAT_VECT2_NORM(enu_speed);
+  gps_leader_AC_datalink.speed_3d = (int16_t)FLOAT_VECT3_NORM(enu_speed);
 
-  // gps_leader_AC_datalink.hmsl = ltp_def.hmsl + enu_pos.z * 10;
-  // SetBit(gps_leader_AC_datalink.valid_fields, GPS_VALID_HMSL_BIT);
+  gps_leader_AC_datalink.hmsl = ltp_def.hmsl + enu_pos.z * 10;
+  SetBit(gps_leader_AC_datalink.valid_fields, GPS_VALID_HMSL_BIT);
 
   gps_leader_AC_datalink.course = ((int32_t)heading) * 1e3;
   SetBit(gps_leader_AC_datalink.valid_fields, GPS_VALID_COURSE_BIT);
@@ -330,8 +378,79 @@ void parse_gps_datalink_small_2(int16_t heading, uint32_t pos_xyz, uint32_t spee
 
   // publish new GPS data
   uint32_t now_ts = get_sys_time_usec();
-  // AbiSendMsgGPS(GPS_DATALINK_ID, now_ts, &gps_datalink); ///THIS WILL BE UPDATED IN THE FUTE TO MAYBE ANOTHER ABI MESSAGE?
-}
+ }
+
+
+
+// void parse_gps_datalink_small_2(int16_t heading, uint32_t pos_xyz, uint32_t speed_xyz, uint32_t tow)
+// {
+//   struct EnuCoor_i enu_pos, enu_speed;
+
+
+//   // Position in ENU coordinates
+//   LEADER_AC_XYZ.x = (int32_t)((pos_xyz >> 21) & 0x7FF); // bits 31-21 x position in cm
+//   if (enu_pos.x & 0x400) {
+//     LEADER_AC_XYZ.x |= 0xFFFFF800;  // sign extend for twos complements
+//   }
+//   LEADER_AC_XYZ.y = (int32_t)((pos_xyz >> 10) & 0x7FF); // bits 20-10 y position in cm
+//   if (enu_pos.y & 0x400) {
+//     LEADER_AC_XYZ.y |= 0xFFFFF800;  // sign extend for twos complements
+//   }
+//   LEADER_AC_XYZ.z = (int32_t)(pos_xyz & 0x3FF); // bits 9-0 z position in cm
+
+//   LEADER_AC_XYZ_SPEED.x = (int32_t)((speed_xyz >> 21) & 0x7FF); // bits 31-21 speed x in cm/s
+//   if (enu_speed.x & 0x400) {
+//     LEADER_AC_XYZ_SPEED.x |= 0xFFFFF800;  // sign extend for twos complements
+//   }
+//   LEADER_AC_XYZ_SPEED.y = (int32_t)((speed_xyz >> 10) & 0x7FF); // bits 20-10 speed y in cm/s
+//   if (enu_speed.y & 0x400) {
+//     LEADER_AC_XYZ_SPEED.y |= 0xFFFFF800;  // sign extend for twos complements
+//   }
+//   LEADER_AC_XYZ_SPEED.z = (int32_t)((speed_xyz) & 0x3FF); // bits 9-0 speed z in cm/s
+//   if (enu_speed.z & 0x200) {
+//     LEADER_AC_XYZ_SPEED.z |= 0xFFFFFC00;  // sign extend for twos complements
+//   }
+
+//   // VECT3_NED_OF_ENU(gps_leader_AC_datalink.ned_vel, enu_speed);
+  
+//   gps_leader_AC_datalink.course = ((int32_t)heading) * 1e3;
+  
+// }
+
+// void parse_gps_datalink_small_3(int16_t heading, uint32_t pos_xyz, uint32_t speed_xyz, uint32_t tow)
+// {
+//   struct EnuCoor_i enu_pos, enu_speed;
+
+
+//   // Position in ENU coordinates
+//   AC_XYZ.x = (int32_t)((pos_xyz >> 21) & 0x7FF); // bits 31-21 x position in cm
+//   if (enu_pos.x & 0x400) {
+//     AC_XYZ.x |= 0xFFFFF800;  // sign extend for twos complements
+//   }
+//   AC_XYZ.y = (int32_t)((pos_xyz >> 10) & 0x7FF); // bits 20-10 y position in cm
+//   if (enu_pos.y & 0x400) {
+//     AC_XYZ.y |= 0xFFFFF800;  // sign extend for twos complements
+//   }
+//   AC_XYZ.z = (int32_t)(pos_xyz & 0x3FF); // bits 9-0 z position in cm
+
+//   AC_XYZ_SPEED.x = (int32_t)((speed_xyz >> 21) & 0x7FF); // bits 31-21 speed x in cm/s
+//   if (enu_speed.x & 0x400) {
+//     AC_XYZ_SPEED.x |= 0xFFFFF800;  // sign extend for twos complements
+//   }
+//   AC_XYZ_SPEED.y = (int32_t)((speed_xyz >> 10) & 0x7FF); // bits 20-10 speed y in cm/s
+//   if (enu_speed.y & 0x400) {
+//     AC_XYZ_SPEED.y |= 0xFFFFF800;  // sign extend for twos complements
+//   }
+//   AC_XYZ_SPEED.z = (int32_t)((speed_xyz) & 0x3FF); // bits 9-0 speed z in cm/s
+//   if (enu_speed.z & 0x200) {
+//     AC_XYZ_SPEED.z |= 0xFFFFFC00;  // sign extend for twos complements
+//   }
+
+  // VECT3_NED_OF_ENU(gps_leader_AC_datalink.ned_vel, enu_speed);
+  
+  // gps_leader_AC_datalink.course = ((int32_t)heading) * 1e3;
+  
+// }
 // THIS IS THE INIT FUNCTION FOR GPS!
 // void gps_datalink_init(void)
 // {
@@ -354,10 +473,27 @@ void parse_gps_datalink_small_2(int16_t heading, uint32_t pos_xyz, uint32_t spee
 
 extern void gps_other_ac_datalink_parse_REMOTE_GPS_SMALL(uint8_t *buf)
 {
-  if (DL_REMOTE_GPS_SMALL_ac_id(buf) != LEADER_AC_ID) { return; } // not for this aircraft
-
+  // if (DL_REMOTE_GPS_LOCAL_ac_id(buf) != AC_ID) { return; } // not for this aircraft
+  ALIVE = 1;
   parse_gps_datalink_small_2(DL_REMOTE_GPS_SMALL_heading(buf),
-                           DL_REMOTE_GPS_SMALL_pos_xyz(buf),
-                           DL_REMOTE_GPS_SMALL_speed_xyz(buf),
-                           DL_REMOTE_GPS_SMALL_tow(buf));
+                            DL_REMOTE_GPS_SMALL_pos_xyz(buf),
+                            DL_REMOTE_GPS_SMALL_speed_xyz(buf),
+                            DL_REMOTE_GPS_SMALL_tow(buf));
 }
+
+
+// extern void gps_other_ac_datalink_parse_REMOTE_GPS_SMALL(uint8_t *buf)
+// {
+//   ALIVE = DL_REMOTE_GPS_SMALL_ac_id(buf);
+//   if (DL_REMOTE_GPS_SMALL_ac_id(buf) == LEADER_AC_ID){
+//   parse_gps_datalink_small_2(DL_REMOTE_GPS_SMALL_heading(buf),
+//                             DL_REMOTE_GPS_SMALL_pos_xyz(buf),
+//                             DL_REMOTE_GPS_SMALL_speed_xyz(buf),
+//                             DL_REMOTE_GPS_SMALL_tow(buf));
+//   }else if(DL_REMOTE_GPS_SMALL_ac_id(buf) == AC_ID){
+//   parse_gps_datalink_small_3(DL_REMOTE_GPS_SMALL_heading(buf),
+//                             DL_REMOTE_GPS_SMALL_pos_xyz(buf),
+//                             DL_REMOTE_GPS_SMALL_speed_xyz(buf),
+//                             DL_REMOTE_GPS_SMALL_tow(buf));
+//   }
+//   else { return;} // not for these aircraft

@@ -308,7 +308,7 @@ void guidance_indi_run(float *heading_sp)
   MAT33_VECT3_MUL(control_increment, Ga_inv, a_diff);
   AbiSendMsgTHRUST(THRUST_INCREMENT_ID, control_increment.z);
 
-  guidance_euler_cmd.theta = (radio_control.values[RADIO_PITCH] / 9600.0) * guidance_indi_max_bank; // * 0.2;
+  guidance_euler_cmd.theta = 0; //(radio_control.values[RADIO_PITCH] / 9600.0) * guidance_indi_max_bank; // * 0.2;
   guidance_euler_cmd.phi = 0;   //roll_filt.o[0] + control_increment.y;
   guidance_euler_cmd.psi =  *heading_sp;
   
@@ -316,7 +316,7 @@ void guidance_indi_run(float *heading_sp)
   
   overactuated_u[0] = overactuator_state_filt_vect[0] + control_increment.y;
   overactuated_u[1] = overactuator_state_filt_vect[1] + control_increment.y;
-  overactuated_u[2] = 0; //overactuator_state_filt_vect[2] + control_increment.x; //overactuator_state_filt_vect[2] + control_increment.x;
+  overactuated_u[2] = overactuator_state_filt_vect[2] + control_increment.x; //overactuator_state_filt_vect[2] + control_increment.x;
 
   // overactuated_u[0] +=  control_increment.y;
   // overactuated_u[1] +=  control_increment.y;
@@ -334,15 +334,16 @@ uint8_t i;
 
   overactuated_command[0] = guidance_indi_overact_side_base + overactuated_u[0];
   overactuated_command[1] = guidance_indi_overact_side_base - overactuated_u[1];
-  overactuated_command[2] =  0 ; //overactuated_u[2];                           //delete if not simulation
+  overactuated_command[2] = overactuated_u[2];                           //delete if not simulation
   
   // Bound the inputs to the actuators
-  for (i = 0; i < num_overact; i++) {                  //remove -1 if not siumulation   !!!!!
+  for (i = 0; i < num_overact-1; i++) {                  //remove -1 if not siumulation   !!!!!
     overactuated_command_bounded[i] = overactuated_command[i];
     Bound(overactuated_command_bounded[i], 0, MAX_PPRZ);      //vhrvk yhis
   }
- 
-  
+
+  overactuated_command_bounded[2] = overactuated_command[2];
+   
   /*Commit the actuator command*/
   for (i = 0; i < num_overact; i++) {
     actuators_pprz[i+4] = (int16_t) overactuated_command_bounded[i];

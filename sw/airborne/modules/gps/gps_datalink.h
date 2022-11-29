@@ -48,4 +48,8 @@ extern void gps_datalink_parse_REMOTE_GPS(uint8_t *buf);
 extern void gps_datalink_parse_REMOTE_GPS_SMALL(uint8_t *buf);
 extern void gps_datalink_parse_REMOTE_GPS_LOCAL(uint8_t *buf);
 
+extern struct LtpDef_i ltp_def;
+
 #endif /* GPS_DATALINK_H */
+
+

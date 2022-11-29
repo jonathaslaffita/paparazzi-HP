@@ -43,5 +43,6 @@ extern float guidance_indi_specific_force_gain;
 extern float guidance_indi_pos_gain;
 extern float guidance_indi_speed_gain;
 extern float guidance_indi_max_bank;
+extern float guidance_indi_overact_side_base;
 
 #endif /* GUIDANCE_INDI_H */

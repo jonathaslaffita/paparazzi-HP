@@ -121,7 +121,7 @@
     <servo name="BOTTOM_LEFT" no="1" min="1000" neutral="1150" max="2000"/>
     <servo name="LEFT_SIDE" no="4" min="1000" neutral="1150" max="2000"/> 
     <servo name="RIGHT_SIDE" no="6" min="1000" neutral="1150" max="2000"/> 
-    <servo name="BACK_SIDE" no="5" min="1000" neutral="1000" max="2000"/> 
+    <servo name="BACK_SIDE" no="5" min="1000" neutral="1500" max="2000"/> 
 
   </servos>
 
@@ -156,7 +156,7 @@
     <set servo="BOTTOM_LEFT"   value="autopilot_get_motors_on() ? actuators_pprz[1] : -MAX_PPRZ"/>
     <set servo="LEFT_SIDE" value="(autopilot_get_motors_on() ? ($th_hold? -MAX_PPRZ : actuators_pprz[4]) : -MAX_PPRZ)"/> <!--(autopilot_get_motors_on() ? ($th_hold? -MAX_PPRZ : actuators_pprz[6]) : -MAX_PPRZ)"/> -->
     <set servo="RIGHT_SIDE" value="(autopilot_get_motors_on() ? ($th_hold? -MAX_PPRZ : actuators_pprz[5]) : -MAX_PPRZ)"/><!--(autopilot_get_motors_on() ? ($th_hold? -MAX_PPRZ : actuators_pprz[6]) : -MAX_PPRZ)"/> -->
-    <set servo="BACK_SIDE" value="(autopilot_get_motors_on() ? ($th_hold? -MAX_PPRZ : actuators_pprz[6]) : -MAX_PPRZ)"/><!--(autopilot_get_motors_on() ? ($th_hold? -MAX_PPRZ : actuators_pprz[6]) : -MAX_PPRZ)"/> -->
+    <set servo="BACK_SIDE" value="(autopilot_get_motors_on() ? ($th_hold? 0 : actuators_pprz[6]) : 0)"/><!--(autopilot_get_motors_on() ? ($th_hold? -MAX_PPRZ : actuators_pprz[6]) : -MAX_PPRZ)"/> -->
         
   </command_laws>
 
@@ -320,7 +320,7 @@
   <section name="AUTOPILOT">
     <define name="MODE_MANUAL" value="AP_MODE_ATTITUDE_DIRECT"/>
     <define name="MODE_AUTO1"  value="AP_MODE_HOVER_Z_HOLD"/>
-    <define name="MODE_AUTO2"  value="AP_MODE_HOVER_Z_HOLD"/>            <!--  ="AP_MODE_GUIDEDvalue="AP_MODE_NAV"/> "/>  -->
+    <define name="MODE_AUTO2"  value="AP_MODE_HOVER_CLIMB"/>            <!--  ="AP_MODE_GUIDEDvalue="AP_MODE_NAV"/> "/>  -->
     <define name="MODE_STARTUP"  value="AP_MODE_ATTITUDE_DIRECT"/>
   </section>
 
