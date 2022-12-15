@@ -26,12 +26,13 @@
       <module name="pprzlog"/>
       <module name="logger" type="sd_chibios"/>
       <module name="flight_recorder"/>
+      <!-- <module name="sys_mon"/> -->
 
 
       <define name="RADIO_TH_HOLD"     value="RADIO_AUX2"/>
       <define name="RADIO_FMODE"       value="RADIO_MODE"/> <!-- Throttle curve select -->
       <define name="RADIO_KILL_SWITCH" value="RADIO_AUX1"/>
-            
+          
       
     </target>
 
@@ -86,7 +87,7 @@
     <module name="guidance" type="indi">
       <define name="GUIDANCE_INDI_POS_GAIN" value="0.5"/>
       <define name="GUIDANCE_INDI_SPEED_GAIN" value="1.8"/> 
-      <define name="GUIDANCE_INDI_RC_DEBUG" value="TRUE"/> 
+      <define name="GUIDANCE_INDI_RC_DEBUG" value="FALSE"/> 
       <define name="GUIDANCE_INDI_OVERACT_SIDE_BASE" value="2070"/> 
       <!-- <define name="GUIDANCE_INDI_THRUST_DYNAMICS" value="0.0354"/> -->
     </module> 
@@ -243,7 +244,7 @@
     <define name="G1_ROLL" value="{-20.7606f ,  15.3627f  ,20.9887f , -15.4449f}"/> <!-- "-20.8F, 18.f, 18.f , -18.f}"/> -->
     <define name="G1_PITCH" value="{17.9935f , -18.1496f  , 16.7736f , -17.9439f}"/> 
     <define name="G1_YAW" value="{-4.2426f  , -3.9362f ,  3.7505f   , 4.5076f}"/>
-    <define name="G1_THRUST" value="{-1.f, -1.f, -1.f, -1.f}"/>
+    <define name="G1_THRUST" value="{-0.5, -0.5, -0.5, -0.5}"/>
     <!--Counter torque effect of spinning up a rotor-->
     <define name="G2" value="{ 0.0335f  , -0.0185f   ,-0.0167f  ,  0.0020f}"/>
 

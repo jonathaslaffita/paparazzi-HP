@@ -57,8 +57,8 @@
 #endif
 
 struct FloatVect3 a_wanted = {0.0,0.0,0.0};
-struct FloatVect3 relative_position_wanted = {-2.0,0.f,1};                       //m in the leader BODY FRAME
-
+struct FloatVect3 relative_position_wanted = {-2.0,0.0,1.0};                       //m in the leader BODY FRAME
+struct FloatVect3 approach_vector = {-2.0,0.0,1.0};
 
 
 
@@ -70,33 +70,47 @@ enum docking_state_t {                         //WHAT CAN I USE THIS FOR?
 };
 
 // define settings
-int32_t flag;
+int32_t flag = 0; //  2D for now
 int32_t LEADER_AC_ID = 6;
-struct FloatVect3 relative_position_NED;
 float relative_heading;                                        //rad? deg?
-float relative_position_error_threshold;                       // RELATIVE POSITION NED
-struct FloatVect3 relative_position_P_GAIN = {2.0,2.0,2.0};       // Relative position GAIN
-struct FloatVect3 relative_position_D_GAIN = {4.0,4.0,4.0};
-float relative_velocity_speed_gain = 0.05f;       // relative velocity GAIN
+float relative_position_error_threshold = 0.000000001;                       // RELATIVE POSITION NED
+extern float relative_position_P_GAIN_X = 0.5;
+extern float relative_position_P_GAIN_Y = 0.5;
+extern float relative_position_P_GAIN_Z = 0.5;
+struct FloatVect3 relative_position_P_GAINS = {0.5,0.5,0.5};       // Relative position GAIN
+extern float relative_position_D_GAIN_X = 1.8;
+extern float relative_position_D_GAIN_Y = 1.8;
+extern float relative_position_D_GAIN_Z = 1.8;
+struct FloatVect3 relative_position_D_GAINS = {1.8,1.8,1.8};
+float extern velocity_speed_gain = 2.0;       // relative velocity GAIN
 float relative_accel_gain;                        //raltive acceleration GAIN
 float heading_setpoint;             // heading setpoint 
 float transversal_error;
-float min_error;
-float max_error;
+// float min_error;
+// float max_error;
 struct FloatMat33 ROT_inv;
-struct FloatVect3 docked_setpoint = {0.1 , 0.0, -0.1};//{-distance_of_docked_setpoint * cos(angle_of_aproach), 0 , -distance_of_docked_setpoint * sin(angle_of_aproach)};
-struct FloatVect3 pre_docked_setpoint = {-1.5, 0.-1.0};//{-distance_of_docked_setpoint * cos(angle_of_aproach), 0 , -distance_of_docked_setpoint * sin(angle_of_aproach)};
+struct FloatVect3 docked_setpoint = {-0.5 , 0.0, 0.0};//{-distance_of_docked_setpoint * cos(angle_of_aproach), 0 , -distance_of_docked_setpoint * sin(angle_of_aproach)};
+extern float pre_docked_setpoint_X= -1.5;
+extern float pre_docked_setpoint_Y = 0.0;
+extern float pre_docked_setpoint_Z = 0.0;
+struct FloatVect3 pre_docked_setpoint = {-1.5, 0.0,1.0};//{-distance_of_docked_setpoint * cos(angle_of_aproach), 0 , -distance_of_docked_setpoint * sin(angle_of_aproach)};
 struct FloatVect3 error_to_setpoint_NED;
 struct FloatVect3 prev_error_to_setpoint_NED;
 struct FloatVect3 derrivative_error_to_setpoint_NED;
 float advance = -0.5;
 struct GpsState gps_leader_AC_datalink;
-struct Int32Vect3 AC_XYZ;
-struct Int32Vect3 AC_XYZ_SPEED;
-struct Int32Vect3 LEADER_AC_XYZ;
-struct Int32Vect3 LEADER_AC_XYZ_SPEED;
-struct FloatVect3 relative_position_xyz;
-
+struct FloatVect3 AC_NED;
+struct Int32Vect3 AC_NED_SPEED;
+struct FloatVect3 LEADER_AC_NED;
+struct Int32Vect3 LEADER_AC_NED_SPEED;
+struct FloatVect3 relative_position_NED;
+float psi_target;
+struct FloatVect3 relative_position_bframe;
+struct FloatVect3 leader_relative_position_wanted_NED;
+struct FloatVect3 velocity_wanted;
+struct FloatVect3 error_to_velocity_setpoint;
+struct FloatVect3 derrivative_error_to_velocity_setpoint;
+float running_frequency = 5.0;
 /////// FOR GPS INITIALIZATION
 // struct LtpDef_i ltp_def;
 
@@ -104,18 +118,15 @@ struct FloatVect3 relative_position_xyz;
                                                   //what else
 
 //initializes some global variables
-int32_t IRLOCK = 0;
-int32_t GOOD_PRECONTACT;
+int32_t IRLOCK = 1;         //for now it is forced at +1
 int32_t IRLOCK_confidence = -8;
-enum docking_state_t docking_state = LOOKING_MANUAL;   // current state in state machine
+docking_state = LOOKING_MANUAL;   // current state in state machine  enum docking_state_t  removed from the front
 // static abi_event qwe_ev;
 int32_t ALIVE = 0;
 // DECLARATIONS OF FORMULAE
 void processrelativepose(void);
 void get_terminal_relative_sp(void);
 void calc_accel_sp(void);
-// void parse_gps_datalink_small_22(int16_t heading, uint32_t pos_xyz, uint32_t speed_xyz, uint32_t tow);
-// extern void gps_other_ac_datalink_parse_REMOTE_GPS_SMALL(uint8_t *buf);
 
 
 #if PERIODIC_TELEMETRY
@@ -123,47 +134,60 @@ void calc_accel_sp(void);
 static void send_airborne_docking(struct transport_tx *trans, struct link_device *dev)
 {
   pprz_msg_send_AIRBORNE_DOCKING(trans, dev, AC_ID,
-                              &ALIVE,
-                              &LEADER_AC_XYZ.x,
-                              &LEADER_AC_XYZ.y,
-                              &LEADER_AC_XYZ.z,
-                              &AC_XYZ.x,
-                              &AC_XYZ.y,
-                              &AC_XYZ.z,
+                              &advance,
+                              &LEADER_AC_NED.x,
+                              &LEADER_AC_NED.y,
+                              &LEADER_AC_NED.z,
+                              &AC_NED.x,
+                              &AC_NED.y,
+                              &AC_NED.z,
                               &relative_position_NED.x,
                               &relative_position_NED.y,
-                              &relative_position_NED.z);
+                              &relative_position_NED.z,
+                              &relative_position_wanted.x,
+                              &relative_position_wanted.y,
+                              &relative_position_wanted.z,
+                              &leader_relative_position_wanted_NED.x,
+                              &leader_relative_position_wanted_NED.y,
+                              &leader_relative_position_wanted_NED.z,
+                              &error_to_setpoint_NED.x,
+                              &error_to_setpoint_NED.y,
+                              &error_to_setpoint_NED.z,
+                              &derrivative_error_to_setpoint_NED.x,
+                              &derrivative_error_to_setpoint_NED.y,
+                              &derrivative_error_to_setpoint_NED.z,
+                              &velocity_wanted.x,
+                              &velocity_wanted.y,
+                              &velocity_wanted.z
+                              );
 }
 #endif
 
 
 void airborne_docking_init(void)
 {
-  // your init code here
-  // gps_datalink_init();
   #if PERIODIC_TELEMETRY
     register_periodic_telemetry(DefaultPeriodic, PPRZ_MSG_ID_AIRBORNE_DOCKING, send_airborne_docking);
   #endif
 
-  float heading  = stateGetNedToBodyEulers_f()->psi;    //getting heading
   // AbiBindMsgRELATIVE_POSE(ORANblahhblhaISUAL_DETECTION_ID, &color_detection_ev, color_detection_cb);  ///// receive  POSE?? in body frame
-  // Abi messages bindings
-  // AbiBindMsgACCEL_SP(QWE_ID, &qwe_ev, qwe_cb);       /// not needed!!?
-  
-
-  
+   
 }
 
- 
+/**
+ * @param heading_sp the desired heading [rad]
+ *
+ * main airborne docking function
+ */
 void airborne_docking_periodic(void)
 {
 
-  processrelativepose();
+  processrelativepose();    
   
 
-  VERBOSE_PRINT("state: %d \n", docking_state);
+  VERBOSE_PRINT("state: %d \n", docking_state); //THIS DOES NOT WORK WHEN FLYING REAL AC?
 
-  // update our confidence if confidence that we are indeed seing follower if several PNPs in a row say that is the case   (NEEDED)
+  // update our confidence if confidence that we are indeed seing follower if several PNPs in a row say that is the case   (NEEDED??)
   if(IRLOCK < 1){
     IRLOCK_confidence -= 1;
   } else {
@@ -175,12 +199,13 @@ void airborne_docking_periodic(void)
 
     // if no stability reached, keep trying to get to precontact.
   if(transversal_error < relative_position_error_threshold){     //FIND THIS (IF ERROR INSIDE PRECONTACT BOX SMALLER THAN A CERTAIN AMOUNT, INCREASE PRECONTACT_confidence)
-    advance -= 0.01;
+    advance += 0.0001;
   } else {
-   advance += 0.01; 
+   advance -= 0.0001;                      //advance number from -1 to 1. at 1 fully docked.
   }
+
   Bound(advance, -1,1);
-    // bound obstacle_free_confidence
+    // bound advance
   Bound(advance, -1, 1);
 
   //float moveDistance = fminf(maxDistance, 0.2f * obstacle_free_confidence);  interesting concept
@@ -229,12 +254,11 @@ void airborne_docking_periodic(void)
         docking_state = TARGET_FOUND_PRECONTACT_SETPOINT;
         break;
       }else{
-      get_terminal_relative_sp(); 
-      calc_accel_sp();
-      AbiSendMsgACCEL_SP(ABI_BROADCAST, flag, &a_wanted);
-
-      }
-      break;
+        get_terminal_relative_sp(); 
+        calc_accel_sp();
+        AbiSendMsgACCEL_SP(ABI_BROADCAST, flag, &a_wanted);
+        }
+        break;
       
     case JUMP:
 
@@ -250,32 +274,45 @@ void airborne_docking_periodic(void)
  // this will get this information from the camera frame to the NED navigation frame (maybe I can ignor ROTATIONS FOR NOW AND FOCUS ON DISTANCE + RELATIVE HEADING)
 void processrelativepose()
 {
-struct FloatVect3 relative_position_bframe;
-struct FloatVect3 leader_relative_position_wanted_NED;
+
 float psi = stateGetNedToBodyEulers_f()->psi;
 float leader_psi_diff = gps_leader_AC_datalink.course - psi;                               //add + optitrack
-float psi_target = psi + leader_psi_diff;
+psi_target = psi + leader_psi_diff;
+psi_target = 0;      // not dealing with heading right now.
+
 struct FloatRMat *matforrelativeNED = stateGetNedToBodyRMat_f();
 MAT33_TRANS(ROT_inv, *matforrelativeNED);
-AC_XYZ.x = stateGetPositionNed_i()->x;
-AC_XYZ.y = stateGetPositionNed_i()->y;
-AC_XYZ.z = stateGetPositionNed_i()->z;
+
+/// @brief  PORTION FOR OPTITRACK
+AC_NED.x = stateGetPositionNed_f()->x;  //in meters
+AC_NED.y = stateGetPositionNed_f()->y;
+AC_NED.z = -stateGetPositionNed_f()->z;
+
+// // Set the default tracking system position and angle
+//   struct LlaCoor_d tracking_lla;
+//   struct LtpDef_d tracking_ltp; 
+//   tracking_lla.lat = RadOfDeg(51.9906340);
+//   tracking_lla.lon = RadOfDeg(4.3767889);
+//   tracking_lla.alt = 45.103;
+//   tracking_offset_angle = 33.0 / 57.6;
+//   ltp_def_from_lla_d(&tracking_ltp, &tracking_lla);
 
 
-VECT3_DIFF(relative_position_xyz, LEADER_AC_XYZ, AC_XYZ);
-VECT3_SMUL(relative_position_xyz,relative_position_xyz,10);
-relative_position_NED = relative_position_xyz;                           //MAYBE SHIFT BY HEADING
+
+VECT3_DIFF(relative_position_NED, AC_NED, LEADER_AC_NED);
+                         //MAYBE SHIFT BY HEADING
 // MAT33_VECT3_MUL(relative_position_NED, ROT_inv, relative_position_bframe);   TO USE WITH BFRAME
-leader_relative_position_wanted_NED.x = relative_position_wanted.x * cosf(psi) - sinf(psi) * relative_position_wanted.y;
-leader_relative_position_wanted_NED.y = relative_position_wanted.y * sinf(psi) + cosf(psi) * relative_position_wanted.y;
+leader_relative_position_wanted_NED.x = relative_position_wanted.x * cosf(psi_target) - sinf(psi_target) * relative_position_wanted.y;
+leader_relative_position_wanted_NED.y = relative_position_wanted.y * cosf(psi_target) + sinf(psi_target) * relative_position_wanted.y;
 leader_relative_position_wanted_NED.z = relative_position_wanted.z;
 prev_error_to_setpoint_NED = error_to_setpoint_NED;
 
-VECT3_DIFF(error_to_setpoint_NED, relative_position_NED, leader_relative_position_wanted_NED);
+VECT3_DIFF(error_to_setpoint_NED, leader_relative_position_wanted_NED, relative_position_NED);
 VECT3_DIFF(derrivative_error_to_setpoint_NED, error_to_setpoint_NED, prev_error_to_setpoint_NED);
-VECT3_SMUL(derrivative_error_to_setpoint_NED, derrivative_error_to_setpoint_NED, PERIODIC_FREQUENCY)
+VECT3_SMUL(derrivative_error_to_setpoint_NED, derrivative_error_to_setpoint_NED, running_frequency)  //unfiltered diferntiated error to setpoint
 
-transversal_error = sqrt((pow(error_to_setpoint_NED.x,2) + pow(error_to_setpoint_NED.y,2)));
+transversal_error = sqrt((pow(error_to_setpoint_NED.x,2) + pow(error_to_setpoint_NED.y,2)));      //what about Z?
+
 }
 
 /*
@@ -285,15 +322,20 @@ void get_terminal_relative_sp(void){
 // this formula uses calculated error to setpoint from proceesrelative pose and changes the required setpoint based on it 
 // float distance_to_AC_wanted = docked_setpoint - ((transversal_error-min_error)*(pre_dock_distance_longitudinal + docked_setpoint)^4/(max_error))^0.25;
 // float height_to_AC_wanted = (transversal_error - min_error)/(max_error-min_error)*PREDOCK_Z;
+pre_docked_setpoint.x = pre_docked_setpoint_X;
+pre_docked_setpoint.y = pre_docked_setpoint_Y;
+pre_docked_setpoint.z = pre_docked_setpoint_Z;
+
 if (advance <= 0)
 {
   relative_position_wanted = pre_docked_setpoint;
 }
 else
 {
-  VECT3_DIFF(relative_position_wanted, docked_setpoint, pre_docked_setpoint);
+  VECT3_DIFF(approach_vector, docked_setpoint, pre_docked_setpoint);
   // MAT33_MULT_SCALAR(relative_position_wanted,(transversal_error - min_error)/(max_error-min_error));
-  VECT3_SMUL(relative_position_wanted,relative_position_wanted, (1-advance));
+  VECT3_SMUL(approach_vector, approach_vector, advance);
+  VECT3_SUM(relative_position_wanted, pre_docked_setpoint, approach_vector);
 }}
 
 /*
@@ -302,9 +344,35 @@ else
 void calc_accel_sp(void){
 // FOR NOW JUST A GAIN KXYZ TO THE ERROR
 
-a_wanted.x = error_to_setpoint_NED.x * relative_position_P_GAIN.x + derrivative_error_to_setpoint_NED.x * relative_position_D_GAIN.x;
-a_wanted.y = error_to_setpoint_NED.y * relative_position_P_GAIN.y + derrivative_error_to_setpoint_NED.y * relative_position_D_GAIN.y;
-a_wanted.z = error_to_setpoint_NED.z * relative_position_P_GAIN.z + derrivative_error_to_setpoint_NED.z * relative_position_D_GAIN.z;
+relative_position_P_GAINS.x = relative_position_P_GAIN_X;
+relative_position_P_GAINS.y = relative_position_P_GAIN_Y;
+relative_position_P_GAINS.z = relative_position_P_GAIN_Z;
+
+relative_position_D_GAINS.x = relative_position_D_GAIN_X;
+relative_position_D_GAINS.y = relative_position_D_GAIN_Y;
+relative_position_D_GAINS.z = relative_position_D_GAIN_Z;
+
+VECT3_SMUL(velocity_wanted, error_to_setpoint_NED, velocity_speed_gain);
+
+
+static struct FloatVect3 previous_error_to_velocity_setpoint;
+previous_error_to_velocity_setpoint =  error_to_velocity_setpoint;
+
+VECT3_DIFF(error_to_velocity_setpoint, velocity_wanted, *stateGetSpeedNed_f());
+VECT3_DIFF(derrivative_error_to_velocity_setpoint, error_to_velocity_setpoint, previous_error_to_velocity_setpoint);
+VECT3_SMUL(derrivative_error_to_velocity_setpoint, derrivative_error_to_velocity_setpoint, running_frequency)  //unfiltered diferntiated error to setpoint
+
+// a_wanted.x = error_to_velocity_setpoint.x * relative_position_P_GAINS.x - derrivative_error_to_velocity_setpoint.x * relative_position_D_GAINS.x;
+// a_wanted.y = error_to_velocity_setpoint.y * relative_position_P_GAINS.y - derrivative_error_to_velocity_setpoint.y * relative_position_D_GAINS.y;
+// a_wanted.z = error_to_velocity_setpoint.z * relative_position_P_GAINS.z - derrivative_error_to_velocity_setpoint.z * relative_position_D_GAINS.z;
+
+a_wanted.x = error_to_setpoint_NED.x * relative_position_P_GAINS.x + derrivative_error_to_setpoint_NED.x * relative_position_D_GAINS.x;
+a_wanted.y = error_to_setpoint_NED.y * relative_position_P_GAINS.y + derrivative_error_to_setpoint_NED.y * relative_position_D_GAINS.y;
+a_wanted.z = error_to_setpoint_NED.z * relative_position_P_GAINS.z + derrivative_error_to_setpoint_NED.z * relative_position_D_GAINS.z;
+
+ BoundAbs(a_wanted.x, 6);
+ BoundAbs(a_wanted.y, 6);
+ BoundAbs(a_wanted.z, 6);
 
 }
 
@@ -325,9 +393,9 @@ static void parse_gps_datalink_small_2(int16_t heading, uint32_t pos_xyz, uint32
   }
   enu_pos.z = (int32_t)(pos_xyz & 0x3FF); // bits 9-0 z position in cm
 
-  LEADER_AC_XYZ.x = enu_pos.x;
-  LEADER_AC_XYZ.y = enu_pos.y;
-  LEADER_AC_XYZ.z = enu_pos.z;
+  LEADER_AC_NED.x = (float) enu_pos.y /100;
+  LEADER_AC_NED.y = (float) enu_pos.x / 100;
+  LEADER_AC_NED.z = (float) -enu_pos.z/ 100;
 
 
   // Convert the ENU coordinates to ECEF
@@ -380,97 +448,6 @@ static void parse_gps_datalink_small_2(int16_t heading, uint32_t pos_xyz, uint32
   uint32_t now_ts = get_sys_time_usec();
  }
 
-
-
-// void parse_gps_datalink_small_2(int16_t heading, uint32_t pos_xyz, uint32_t speed_xyz, uint32_t tow)
-// {
-//   struct EnuCoor_i enu_pos, enu_speed;
-
-
-//   // Position in ENU coordinates
-//   LEADER_AC_XYZ.x = (int32_t)((pos_xyz >> 21) & 0x7FF); // bits 31-21 x position in cm
-//   if (enu_pos.x & 0x400) {
-//     LEADER_AC_XYZ.x |= 0xFFFFF800;  // sign extend for twos complements
-//   }
-//   LEADER_AC_XYZ.y = (int32_t)((pos_xyz >> 10) & 0x7FF); // bits 20-10 y position in cm
-//   if (enu_pos.y & 0x400) {
-//     LEADER_AC_XYZ.y |= 0xFFFFF800;  // sign extend for twos complements
-//   }
-//   LEADER_AC_XYZ.z = (int32_t)(pos_xyz & 0x3FF); // bits 9-0 z position in cm
-
-//   LEADER_AC_XYZ_SPEED.x = (int32_t)((speed_xyz >> 21) & 0x7FF); // bits 31-21 speed x in cm/s
-//   if (enu_speed.x & 0x400) {
-//     LEADER_AC_XYZ_SPEED.x |= 0xFFFFF800;  // sign extend for twos complements
-//   }
-//   LEADER_AC_XYZ_SPEED.y = (int32_t)((speed_xyz >> 10) & 0x7FF); // bits 20-10 speed y in cm/s
-//   if (enu_speed.y & 0x400) {
-//     LEADER_AC_XYZ_SPEED.y |= 0xFFFFF800;  // sign extend for twos complements
-//   }
-//   LEADER_AC_XYZ_SPEED.z = (int32_t)((speed_xyz) & 0x3FF); // bits 9-0 speed z in cm/s
-//   if (enu_speed.z & 0x200) {
-//     LEADER_AC_XYZ_SPEED.z |= 0xFFFFFC00;  // sign extend for twos complements
-//   }
-
-//   // VECT3_NED_OF_ENU(gps_leader_AC_datalink.ned_vel, enu_speed);
-  
-//   gps_leader_AC_datalink.course = ((int32_t)heading) * 1e3;
-  
-// }
-
-// void parse_gps_datalink_small_3(int16_t heading, uint32_t pos_xyz, uint32_t speed_xyz, uint32_t tow)
-// {
-//   struct EnuCoor_i enu_pos, enu_speed;
-
-
-//   // Position in ENU coordinates
-//   AC_XYZ.x = (int32_t)((pos_xyz >> 21) & 0x7FF); // bits 31-21 x position in cm
-//   if (enu_pos.x & 0x400) {
-//     AC_XYZ.x |= 0xFFFFF800;  // sign extend for twos complements
-//   }
-//   AC_XYZ.y = (int32_t)((pos_xyz >> 10) & 0x7FF); // bits 20-10 y position in cm
-//   if (enu_pos.y & 0x400) {
-//     AC_XYZ.y |= 0xFFFFF800;  // sign extend for twos complements
-//   }
-//   AC_XYZ.z = (int32_t)(pos_xyz & 0x3FF); // bits 9-0 z position in cm
-
-//   AC_XYZ_SPEED.x = (int32_t)((speed_xyz >> 21) & 0x7FF); // bits 31-21 speed x in cm/s
-//   if (enu_speed.x & 0x400) {
-//     AC_XYZ_SPEED.x |= 0xFFFFF800;  // sign extend for twos complements
-//   }
-//   AC_XYZ_SPEED.y = (int32_t)((speed_xyz >> 10) & 0x7FF); // bits 20-10 speed y in cm/s
-//   if (enu_speed.y & 0x400) {
-//     AC_XYZ_SPEED.y |= 0xFFFFF800;  // sign extend for twos complements
-//   }
-//   AC_XYZ_SPEED.z = (int32_t)((speed_xyz) & 0x3FF); // bits 9-0 speed z in cm/s
-//   if (enu_speed.z & 0x200) {
-//     AC_XYZ_SPEED.z |= 0xFFFFFC00;  // sign extend for twos complements
-//   }
-
-  // VECT3_NED_OF_ENU(gps_leader_AC_datalink.ned_vel, enu_speed);
-  
-  // gps_leader_AC_datalink.course = ((int32_t)heading) * 1e3;
-  
-// }
-// THIS IS THE INIT FUNCTION FOR GPS!
-// void gps_datalink_init(void)
-// {
-//   gps_datalink.fix = GPS_FIX_NONE;
-//   gps_datalink.pdop = 10;
-//   gps_datalink.sacc = 5;
-//   gps_datalink.pacc = 1;
-//   gps_datalink.cacc = 1;
-
-//   gps_datalink.comp_id = GPS_DATALINK_ID;
-
-//   struct LlaCoor_i llh_nav0; /* Height above the ellipsoid */
-//   llh_nav0.lat = NAV_LAT0;
-//   llh_nav0.lon = NAV_LON0;
-//   /* NAV_ALT0 = ground alt above msl, NAV_MSL0 = geoid-height (msl) over ellipsoid */
-//   llh_nav0.alt = NAV_ALT0 + NAV_MSL0;
-
-//   ltp_def_from_lla_i(&ltp_def, &llh_nav0);
-// }
-
 extern void gps_other_ac_datalink_parse_REMOTE_GPS_SMALL(uint8_t *buf)
 {
   // if (DL_REMOTE_GPS_LOCAL_ac_id(buf) != AC_ID) { return; } // not for this aircraft
@@ -480,20 +457,3 @@ extern void gps_other_ac_datalink_parse_REMOTE_GPS_SMALL(uint8_t *buf)
                             DL_REMOTE_GPS_SMALL_speed_xyz(buf),
                             DL_REMOTE_GPS_SMALL_tow(buf));
 }
-
-
-// extern void gps_other_ac_datalink_parse_REMOTE_GPS_SMALL(uint8_t *buf)
-// {
-//   ALIVE = DL_REMOTE_GPS_SMALL_ac_id(buf);
-//   if (DL_REMOTE_GPS_SMALL_ac_id(buf) == LEADER_AC_ID){
-//   parse_gps_datalink_small_2(DL_REMOTE_GPS_SMALL_heading(buf),
-//                             DL_REMOTE_GPS_SMALL_pos_xyz(buf),
-//                             DL_REMOTE_GPS_SMALL_speed_xyz(buf),
-//                             DL_REMOTE_GPS_SMALL_tow(buf));
-//   }else if(DL_REMOTE_GPS_SMALL_ac_id(buf) == AC_ID){
-//   parse_gps_datalink_small_3(DL_REMOTE_GPS_SMALL_heading(buf),
-//                             DL_REMOTE_GPS_SMALL_pos_xyz(buf),
-//                             DL_REMOTE_GPS_SMALL_speed_xyz(buf),
-//                             DL_REMOTE_GPS_SMALL_tow(buf));
-//   }
-//   else { return;} // not for these aircraft

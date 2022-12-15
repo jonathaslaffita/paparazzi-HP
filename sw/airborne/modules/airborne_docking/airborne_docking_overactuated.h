@@ -36,9 +36,16 @@ extern void gps_other_ac_datalink_parse_REMOTE_GPS_SMALL(uint8_t *buf);
 
 
 // settings for airborne guidance
-// extern float guidance_indi_pos_gain;
-// extern float guidance_indi_speed_gain;
-// extern float guidance_indi_max_bank;
+extern float relative_position_P_GAIN_X;
+extern float relative_position_P_GAIN_Y;
+extern float relative_position_P_GAIN_Z;
+extern float relative_position_D_GAIN_X;
+extern float relative_position_D_GAIN_Y;
+extern float relative_position_D_GAIN_Z;
+extern float pre_docked_setpoint_X;
+extern float pre_docked_setpoint_Y;
+extern float pre_docked_setpoint_Z;
+float extern velocity_speed_gain;
 
 #endif /* GUIDANCE_INDI_H */
 

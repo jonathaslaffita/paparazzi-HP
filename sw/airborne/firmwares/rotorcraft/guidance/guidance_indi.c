@@ -308,9 +308,9 @@ void guidance_indi_run(float *heading_sp)
   MAT33_VECT3_MUL(control_increment, Ga_inv, a_diff);
   AbiSendMsgTHRUST(THRUST_INCREMENT_ID, control_increment.z);
 
-  guidance_euler_cmd.theta = 0; //(radio_control.values[RADIO_PITCH] / 9600.0) * guidance_indi_max_bank; // * 0.2;
+  guidance_euler_cmd.theta = 0 * guidance_indi_max_bank; //(radio_control.values[RADIO_PITCH] / 9600.0) * guidance_indi_max_bank; // * 0.2;
   guidance_euler_cmd.phi = 0;   //roll_filt.o[0] + control_increment.y;
-  guidance_euler_cmd.psi =  *heading_sp;
+  guidance_euler_cmd.psi =  0;    //NOT DEALING WITH HEADING AS OF NOW  LATER ROLL AND ALL WILL BE SET THROUGH ABI*heading_sp;
   
   
   
@@ -323,7 +323,7 @@ void guidance_indi_run(float *heading_sp)
   // overactuated_u[2] +=  control_increment.x;
 
 
-  PRINT(" %f %f %f \n", overactuated_u[0], overactuated_u[1], overactuated_u[2]);
+  // PRINT(" %f %f %f \n", overactuated_u[0], overactuated_u[1], overactuated_u[2]);
   
 uint8_t i;
   for (i = 0; i < num_overact-1; i++) {
@@ -348,7 +348,7 @@ uint8_t i;
   for (i = 0; i < num_overact; i++) {
     actuators_pprz[i+4] = (int16_t) overactuated_command_bounded[i];
   } 
-  PRINT(" 4: %d --- 5: %d ----- 6: %d \n", actuators_pprz[4], actuators_pprz[5], actuators_pprz[6]);   
+  // PRINT(" 4: %d --- 5: %d ----- 6: %d \n", actuators_pprz[4], actuators_pprz[5], actuators_pprz[6]);   
 
 #ifdef GUIDANCE_INDI_SPECIFIC_FORCE_GAIN
   guidance_indi_filter_thrust();
@@ -364,7 +364,7 @@ uint8_t i;
 #endif
 
   //Overwrite the thrust command from guidance_v
-  // stabilization_cmd[COMMAND_THRUST] = thrust_in;
+  stabilization_cmd[COMMAND_THRUST] = thrust_in;
 #endif
 
   //Bound euler angles to prevent flipping
@@ -461,7 +461,7 @@ void guidance_indi_calcG(struct FloatMat33 *Gmat)
 
   //minus gravity is a guesstimate of the thrust force, thrust measurement would be better
   float T = -9.81;
-  float b = 0.001;
+  float b = 0.003;
   float s = 0.001;
 
   RMAT_ELMT(*Gmat, 0, 0) = ctheta * cpsi * b; 
