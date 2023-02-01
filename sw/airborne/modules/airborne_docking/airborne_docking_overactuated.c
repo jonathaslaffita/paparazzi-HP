@@ -34,6 +34,7 @@
 #include "modules/datalink/downlink.h"
 #include "modules/radio_control/radio_control.h"
 #include "modules/gps/gps_datalink.h"
+// #include <sys/time.h>
 
 
 //include "RELATIVE_POSE_CALCULATION.H"   ////NEEDED
@@ -66,10 +67,12 @@ enum docking_state_t {                         //WHAT CAN I USE THIS FOR?
   LOOKING_MANUAL,
   TARGET_FOUND_PRECONTACT_SETPOINT,
   TERMINAL_GUIDANCE,
+  DROPOUT_USED_GPS,
   JUMP
 };
 
 // define settings
+int16_t leader_psi_diff=0;
 int32_t flag = 0; //  2D for now
 int32_t LEADER_AC_ID = 6;
 float relative_heading;                                        //rad? deg?
@@ -111,6 +114,8 @@ struct FloatVect3 velocity_wanted;
 struct FloatVect3 error_to_velocity_setpoint;
 struct FloatVect3 derrivative_error_to_velocity_setpoint;
 float running_frequency = 5.0;
+struct Int16Vect3 pi_relative_distance;
+struct Int16Vect3 pi_relative_pose;
 /////// FOR GPS INITIALIZATION
 // struct LtpDef_i ltp_def;
 
@@ -124,7 +129,9 @@ docking_state = LOOKING_MANUAL;   // current state in state machine  enum dockin
 // static abi_event qwe_ev;
 int32_t ALIVE = 0;
 // DECLARATIONS OF FORMULAE
-void processrelativepose(void);
+// void processrelativepose(void);
+void processrelativeposegps(void);
+void processrelativeposevision(void);
 void get_terminal_relative_sp(void);
 void calc_accel_sp(void);
 
@@ -169,7 +176,7 @@ void airborne_docking_init(void)
   #if PERIODIC_TELEMETRY
     register_periodic_telemetry(DefaultPeriodic, PPRZ_MSG_ID_AIRBORNE_DOCKING, send_airborne_docking);
   #endif
-
+  AbiBindMsgAM7_DATA_IN(ABI_BROADCAST, &AM7_in, data_AM7_abi_in);
   // AbiBindMsgRELATIVE_POSE(ORANblahhblhaISUAL_DETECTION_ID, &color_detection_ev, color_detection_cb);  ///// receive  POSE?? in body frame
    
 }
@@ -182,7 +189,7 @@ void airborne_docking_init(void)
 void airborne_docking_periodic(void)
 {
 
-  processrelativepose();    
+  // processrelativepose();  // Maybe here I should run the filter and bypass this timing bullcrap  
   
 
   VERBOSE_PRINT("state: %d \n", docking_state); //THIS DOES NOT WORK WHEN FLYING REAL AC?
@@ -215,7 +222,7 @@ void airborne_docking_periodic(void)
     case LOOKING_MANUAL:   //STATE MODULE ON, BUT STILL PILOTING AIRCRAFT MANUALLY (HOW DOES THIS PLAY INTO THE HANDS OF GUIDANCE_INDI (THOUGH ABI_SETPOINT TOO?))
       
       if (IRLOCK_confidence >= 0){
-        docking_state = TARGET_FOUND_PRECONTACT_SETPOINT;
+        docking_state = TARGET_FOUND_PRECONTACT_SETPOINT;  //CHNAGE TO IF SWITCH ACTIVATED
       }
 
       //for direct rc control horizontal, rotate from body axes to NED (MAYBE IN THE FUTRE REMOVE THE NEED FOR PSI??)
@@ -233,12 +240,14 @@ void airborne_docking_periodic(void)
       relative_position_wanted = pre_docked_setpoint;
 
       if (IRLOCK_confidence <= 0){
-        docking_state = LOOKING_MANUAL;
+        docking_state = DROPOUT_USED_GPS;
+        advance = -1;
         break;
       } else if(advance >= 0){
         docking_state = TERMINAL_GUIDANCE;
         break;
       }else{
+            processrelativeposevision();
             get_terminal_relative_sp(); 
             calc_accel_sp();
             AbiSendMsgACCEL_SP(ABI_BROADCAST, flag, &a_wanted);
@@ -248,18 +257,32 @@ void airborne_docking_periodic(void)
 
     case TERMINAL_GUIDANCE:
       if (IRLOCK_confidence <= 0){
-        docking_state = LOOKING_MANUAL;
+        docking_state = DROPOUT_USED_GPS;
+        advance = -1;
         break;
       } else if(advance <= 0){
         docking_state = TARGET_FOUND_PRECONTACT_SETPOINT;
         break;
       }else{
+        processrelativeposevision();
         get_terminal_relative_sp(); 
         calc_accel_sp();
         AbiSendMsgACCEL_SP(ABI_BROADCAST, flag, &a_wanted);
         }
         break;
       
+    case DROPOUT_USED_GPS:
+      if (IRLOCK_confidence >= 0){
+        docking_state = TARGET_FOUND_PRECONTACT_SETPOINT;
+      }
+      else{
+        processrelativeposegps();
+        get_terminal_relative_sp(); 
+        calc_accel_sp();
+        AbiSendMsgACCEL_SP(ABI_BROADCAST, flag, &a_wanted);
+        }
+        break;
+    
     case JUMP:
 
       break;
@@ -272,52 +295,76 @@ void airborne_docking_periodic(void)
 */
  // from VISION WE GET RELATIVE POSE + OPTICAL FLOW. 
  // this will get this information from the camera frame to the NED navigation frame (maybe I can ignor ROTATIONS FOR NOW AND FOCUS ON DISTANCE + RELATIVE HEADING)
-void processrelativepose()
+void processrelativeposegps()
+  {
+  float psi = stateGetNedToBodyEulers_f()->psi;
+  leader_psi_diff = gps_leader_AC_datalink.course - psi;                               //add + optitrack
+  psi_target = psi + leader_psi_diff;
+  psi_target = 0;      // not dealing with heading right now.
+
+  struct FloatRMat *matforrelativeNED = stateGetNedToBodyRMat_f();
+  MAT33_TRANS(ROT_inv, *matforrelativeNED);
+
+  /// @brief  PORTION FOR OPTITRACK
+  AC_NED.x = stateGetPositionNed_f()->x;  //in meters
+  AC_NED.y = stateGetPositionNed_f()->y;
+  AC_NED.z = -stateGetPositionNed_f()->z;
+
+  // // Set the default tracking system position and angle
+  //   struct LlaCoor_d tracking_lla;
+  //   struct LtpDef_d tracking_ltp; 
+  //   tracking_lla.lat = RadOfDeg(51.9906340);
+  //   tracking_lla.lon = RadOfDeg(4.3767889);
+  //   tracking_lla.alt = 45.103;
+  //   tracking_offset_angle = 33.0 / 57.6;
+  //   ltp_def_from_lla_d(&tracking_ltp, &tracking_lla);
+
+
+
+  VECT3_DIFF(relative_position_NED, AC_NED, LEADER_AC_NED);
+                          //MAYBE SHIFT BY HEADING
+  // MAT33_VECT3_MUL(relative_position_NED, ROT_inv, relative_position_bframe);   TO USE WITH BFRAME
+  leader_relative_position_wanted_NED.x = relative_position_wanted.x * cosf(psi_target) - sinf(psi_target) * relative_position_wanted.y;
+  leader_relative_position_wanted_NED.y = relative_position_wanted.y * cosf(psi_target) + sinf(psi_target) * relative_position_wanted.y;
+  leader_relative_position_wanted_NED.z = relative_position_wanted.z;
+  prev_error_to_setpoint_NED = error_to_setpoint_NED;
+
+  VECT3_DIFF(error_to_setpoint_NED, leader_relative_position_wanted_NED, relative_position_NED);
+  VECT3_DIFF(derrivative_error_to_setpoint_NED, error_to_setpoint_NED, prev_error_to_setpoint_NED);
+  VECT3_SMUL(derrivative_error_to_setpoint_NED, derrivative_error_to_setpoint_NED, running_frequency)  //unfiltered diferntiated error to setpoint
+
+  transversal_error = sqrt((pow(error_to_setpoint_NED.x,2) + pow(error_to_setpoint_NED.y,2)));      //what about Z?
+  }
+ 
+ 
+void processrelativeposvision()
 {
+  float psi = stateGetNedToBodyEulers_f()->psi;
+  leader_psi_diff = pi_relative_pose.z;                               //check if true .z but for psi, check what kind should be used for angles
+  psi_target = psi + leader_psi_diff;                                       
+  psi_target = 0;      // not dealing with heading right now.
 
-float psi = stateGetNedToBodyEulers_f()->psi;
-float leader_psi_diff = gps_leader_AC_datalink.course - psi;                               //add + optitrack
-psi_target = psi + leader_psi_diff;
-psi_target = 0;      // not dealing with heading right now.
+  struct FloatRMat *matforrelativeNED = stateGetNedToBodyRMat_f();
+  MAT33_TRANS(ROT_inv, *matforrelativeNED);
 
-struct FloatRMat *matforrelativeNED = stateGetNedToBodyRMat_f();
-MAT33_TRANS(ROT_inv, *matforrelativeNED);
+  //MAYBE SHIFT BY HEADING
+  MAT33_VECT3_MUL(relative_position_NED, ROT_inv, pi_relative_distance);   //TO USE WITH BFRAME
+  leader_relative_position_wanted_NED.x = relative_position_wanted.x * cosf(psi_target) - sinf(psi_target) * relative_position_wanted.y;
+  leader_relative_position_wanted_NED.y = relative_position_wanted.y * cosf(psi_target) + sinf(psi_target) * relative_position_wanted.y;
+  leader_relative_position_wanted_NED.z = relative_position_wanted.z;
+  prev_error_to_setpoint_NED = error_to_setpoint_NED;
 
-/// @brief  PORTION FOR OPTITRACK
-AC_NED.x = stateGetPositionNed_f()->x;  //in meters
-AC_NED.y = stateGetPositionNed_f()->y;
-AC_NED.z = -stateGetPositionNed_f()->z;
+  VECT3_DIFF(error_to_setpoint_NED, leader_relative_position_wanted_NED, relative_position_NED);
+  VECT3_DIFF(derrivative_error_to_setpoint_NED, error_to_setpoint_NED, prev_error_to_setpoint_NED);
+  VECT3_SMUL(derrivative_error_to_setpoint_NED, derrivative_error_to_setpoint_NED, running_frequency)  //unfiltered diferntiated error to setpoint
 
-// // Set the default tracking system position and angle
-//   struct LlaCoor_d tracking_lla;
-//   struct LtpDef_d tracking_ltp; 
-//   tracking_lla.lat = RadOfDeg(51.9906340);
-//   tracking_lla.lon = RadOfDeg(4.3767889);
-//   tracking_lla.alt = 45.103;
-//   tracking_offset_angle = 33.0 / 57.6;
-//   ltp_def_from_lla_d(&tracking_ltp, &tracking_lla);
-
+  transversal_error = sqrt((pow(error_to_setpoint_NED.x,2) + pow(error_to_setpoint_NED.y,2)));      //what about Z?
+  }
 
 
-VECT3_DIFF(relative_position_NED, AC_NED, LEADER_AC_NED);
-                         //MAYBE SHIFT BY HEADING
-// MAT33_VECT3_MUL(relative_position_NED, ROT_inv, relative_position_bframe);   TO USE WITH BFRAME
-leader_relative_position_wanted_NED.x = relative_position_wanted.x * cosf(psi_target) - sinf(psi_target) * relative_position_wanted.y;
-leader_relative_position_wanted_NED.y = relative_position_wanted.y * cosf(psi_target) + sinf(psi_target) * relative_position_wanted.y;
-leader_relative_position_wanted_NED.z = relative_position_wanted.z;
-prev_error_to_setpoint_NED = error_to_setpoint_NED;
-
-VECT3_DIFF(error_to_setpoint_NED, leader_relative_position_wanted_NED, relative_position_NED);
-VECT3_DIFF(derrivative_error_to_setpoint_NED, error_to_setpoint_NED, prev_error_to_setpoint_NED);
-VECT3_SMUL(derrivative_error_to_setpoint_NED, derrivative_error_to_setpoint_NED, running_frequency)  //unfiltered diferntiated error to setpoint
-
-transversal_error = sqrt((pow(error_to_setpoint_NED.x,2) + pow(error_to_setpoint_NED.y,2)));      //what about Z?
-
-}
-
-/*
-* Function that calculates position setpoint in the terminal guidance (body_frame)
-*/
+  /*
+  * Function that calculates position setpoint in the terminal guidance (body_frame)
+  */
 void get_terminal_relative_sp(void){
 // this formula uses calculated error to setpoint from proceesrelative pose and changes the required setpoint based on it 
 // float distance_to_AC_wanted = docked_setpoint - ((transversal_error-min_error)*(pre_dock_distance_longitudinal + docked_setpoint)^4/(max_error))^0.25;

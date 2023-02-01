@@ -23,7 +23,7 @@
     <file name="airborne_docking_overactuated.h"/>
   </header>
   <init fun="airborne_docking_init()"/>
-  <periodic fun="airborne_docking_periodic()" freq="5.0" autorun="TRUE"/> 
+  <!-- <periodic fun="airborne_docking_periodic()" freq="5.0" autorun="TRUE"/>  -->
   <!-- IF YOU CHANGE PERIODIC FREQUENCY ALSO CHANGE IT IT THE DERRIVATES -->
   <datalink message="REMOTE_GPS_SMALL" fun="gps_other_ac_datalink_parse_REMOTE_GPS_SMALL(buf)"/>
   <!-- <event fun="qwe()"/> -->
