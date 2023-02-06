@@ -32,6 +32,8 @@
 
 extern void airborne_docking_init(void);
 extern void airborne_docking_periodic(void);
+extern void processrelativeposegps(void);
+extern void processrelativeposevision(void);
 extern void gps_other_ac_datalink_parse_REMOTE_GPS_SMALL(uint8_t *buf);
 
 

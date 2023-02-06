@@ -73,7 +73,7 @@
     </module>
 
       
-   
+   <module name="ca_am7"/>
    
     <!-- <module name="gps"           type="ublox">
       <configure name="GPS_BAUD" value="B57600"/>

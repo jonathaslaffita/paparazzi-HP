@@ -34,6 +34,7 @@
 #include "modules/datalink/downlink.h"
 #include "modules/radio_control/radio_control.h"
 #include "modules/gps/gps_datalink.h"
+#include "modules/sensors/ca_am7.h"
 // #include <sys/time.h>
 
 
@@ -76,7 +77,7 @@ int16_t leader_psi_diff=0;
 int32_t flag = 0; //  2D for now
 int32_t LEADER_AC_ID = 6;
 float relative_heading;                                        //rad? deg?
-float relative_position_error_threshold = 0.000000001;                       // RELATIVE POSITION NED
+float relative_position_error_threshold = 0.0000001;                       // RELATIVE POSITION NED
 extern float relative_position_P_GAIN_X = 0.5;
 extern float relative_position_P_GAIN_Y = 0.5;
 extern float relative_position_P_GAIN_Z = 0.5;
@@ -116,9 +117,14 @@ struct FloatVect3 derrivative_error_to_velocity_setpoint;
 float running_frequency = 5.0;
 struct Int16Vect3 pi_relative_distance;
 struct Int16Vect3 pi_relative_pose;
+
 /////// FOR GPS INITIALIZATION
 // struct LtpDef_i ltp_def;
 
+
+float extra_data_in_local[255];
+struct am7_data_in pi_vision;
+static abi_event AM7_in;
 
                                                   //what else
 
@@ -142,12 +148,12 @@ static void send_airborne_docking(struct transport_tx *trans, struct link_device
 {
   pprz_msg_send_AIRBORNE_DOCKING(trans, dev, AC_ID,
                               &advance,
-                              &LEADER_AC_NED.x,
-                              &LEADER_AC_NED.y,
-                              &LEADER_AC_NED.z,
-                              &AC_NED.x,
-                              &AC_NED.y,
-                              &AC_NED.z,
+                              // &LEADER_AC_NED.x,
+                              // &LEADER_AC_NED.y,
+                              // &LEADER_AC_NED.z,
+                              // &AC_NED.x,
+                              // &AC_NED.y,
+                              // &AC_NED.z,
                               &relative_position_NED.x,
                               &relative_position_NED.y,
                               &relative_position_NED.z,
@@ -165,11 +171,24 @@ static void send_airborne_docking(struct transport_tx *trans, struct link_device
                               &derrivative_error_to_setpoint_NED.z,
                               &velocity_wanted.x,
                               &velocity_wanted.y,
-                              &velocity_wanted.z
+                              &velocity_wanted.z,
+                              &pi_relative_distance.x,
+                              &pi_relative_distance.y,
+                              &pi_relative_distance.z
                               );
 }
 #endif
 
+
+static void data_AM7_abi_in(uint8_t sender_id __attribute__((unused)), struct am7_data_in * myam7_data_in_ptr, float * extra_data_in_ptr){
+    memcpy(&pi_vision,myam7_data_in_ptr,sizeof(struct am7_data_in));
+    // memcpy(&extra_data_in_local,extra_data_in_ptr,255 * sizeof(float));
+    airborne_docking_periodic();
+    pi_relative_distance.x = pi_vision.pi_translation_y;
+    pi_relative_distance.y = pi_vision.pi_translation_y;
+    pi_relative_distance.z = pi_vision.pi_translation_z;
+    
+}
 
 void airborne_docking_init(void)
 {
@@ -337,10 +356,10 @@ void processrelativeposegps()
   }
  
  
-void processrelativeposvision()
+void processrelativeposevision()
 {
   float psi = stateGetNedToBodyEulers_f()->psi;
-  leader_psi_diff = pi_relative_pose.z;                               //check if true .z but for psi, check what kind should be used for angles
+  leader_psi_diff = pi_vision.pi_rotation_z;                               //check if true .z but for psi, check what kind should be used for angles
   psi_target = psi + leader_psi_diff;                                       
   psi_target = 0;      // not dealing with heading right now.
 
@@ -348,6 +367,9 @@ void processrelativeposvision()
   MAT33_TRANS(ROT_inv, *matforrelativeNED);
 
   //MAYBE SHIFT BY HEADING
+  pi_relative_distance.x = pi_vision.pi_translation_x;
+  pi_relative_distance.y = pi_vision.pi_translation_y;
+  pi_relative_distance.z = pi_vision.pi_translation_z;
   MAT33_VECT3_MUL(relative_position_NED, ROT_inv, pi_relative_distance);   //TO USE WITH BFRAME
   leader_relative_position_wanted_NED.x = relative_position_wanted.x * cosf(psi_target) - sinf(psi_target) * relative_position_wanted.y;
   leader_relative_position_wanted_NED.y = relative_position_wanted.y * cosf(psi_target) + sinf(psi_target) * relative_position_wanted.y;
@@ -422,7 +444,6 @@ a_wanted.z = error_to_setpoint_NED.z * relative_position_P_GAINS.z + derrivative
  BoundAbs(a_wanted.z, 6);
 
 }
-
 
 // Parse the REMOTE_GPS_SMALL datalink packet
 static void parse_gps_datalink_small_2(int16_t heading, uint32_t pos_xyz, uint32_t speed_xyz, uint32_t tow)
