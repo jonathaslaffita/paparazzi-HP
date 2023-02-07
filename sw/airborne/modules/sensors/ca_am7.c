@@ -49,23 +49,32 @@ static uint8_t am7_msg_buf_in[sizeof(struct am7_data_in)*2]  __attribute__((alig
 
 static void am7_downlink(struct transport_tx *trans, struct link_device *dev)
 {
+    uint8_t pivision_flag = myam7_data_in.pivision_flag;
     int16_t pi_translation_x = myam7_data_in.pi_translation_x;
     int16_t pi_translation_y = myam7_data_in.pi_translation_y;
     int16_t pi_translation_z = myam7_data_in.pi_translation_z;
     int16_t pi_rotation_x = myam7_data_in.pi_rotation_x;
     int16_t pi_rotation_y = myam7_data_in.pi_rotation_y;
     int16_t pi_rotation_z = myam7_data_in.pi_rotation_z;
+    int16_t pi_translation_speed_x = myam7_data_in.pi_translation_speed_x;
+    int16_t pi_translation_speed_y = myam7_data_in.pi_translation_speed_y;
+    int16_t pi_translation_speed_z = myam7_data_in.pi_translation_speed_z;
+
     float rolling_msg_in_telemetry = myam7_data_in.rolling_msg_in;
     uint8_t rolling_msg_in_id_telemetry = myam7_data_in.rolling_msg_in_id;
     
 
 	pprz_msg_send_AM7_IN(trans, dev, AC_ID, 
+                        &pivision_flag,
                         &pi_translation_x, 
                         &pi_translation_y, 
                         &pi_translation_z,
 		 	            &pi_rotation_x, 
                         &pi_rotation_y, 
                         &pi_rotation_z, 
+                        &pi_translation_speed_x,
+                        &pi_translation_speed_y,
+                        &pi_translation_speed_z,
                         &missed_packets, 
                         &ca7_message_frequency_RX,
                         &rolling_msg_in_telemetry, 

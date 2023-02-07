@@ -38,12 +38,16 @@
 
 struct __attribute__((__packed__)) am7_data_in {
     //Motor command
+  uint8_t pivision_flag;
 	int16_t pi_translation_x;
 	int16_t pi_translation_y;
   int16_t pi_translation_z;
 	int16_t pi_rotation_x;
 	int16_t pi_rotation_y;
 	int16_t pi_rotation_z;
+  int16_t pi_translation_speed_x;
+	int16_t pi_translation_speed_y;
+  int16_t pi_translation_speed_z;
   float rolling_msg_in;
   uint8_t rolling_msg_in_id;
   uint8_t checksum_in;

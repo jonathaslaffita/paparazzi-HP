@@ -104,18 +104,21 @@ struct FloatVect3 derrivative_error_to_setpoint_NED;
 float advance = -0.5;
 struct GpsState gps_leader_AC_datalink;
 struct FloatVect3 AC_NED;
-struct Int32Vect3 AC_NED_SPEED;
+struct FloatVect3 AC_NED_SPEED;
 struct FloatVect3 LEADER_AC_NED;
-struct Int32Vect3 LEADER_AC_NED_SPEED;
+struct FloatVect3 LEADER_AC_NED_SPEED;
 struct FloatVect3 relative_position_NED;
+struct FloatVect3 relative_speed_NED;
 float psi_target;
 struct FloatVect3 relative_position_bframe;
 struct FloatVect3 leader_relative_position_wanted_NED;
 struct FloatVect3 velocity_wanted;
-struct FloatVect3 error_to_velocity_setpoint;
-struct FloatVect3 derrivative_error_to_velocity_setpoint;
-float running_frequency = 5.0;
+struct FloatMat33 pitobody_RMAT;
+// struct FloatVect3 error_to_velocity_setpoint;
+// struct FloatVect3 derrivative_error_to_velocity_setpoint;
+// float running_frequency = 5.0;
 struct Int16Vect3 pi_relative_distance;
+struct Int16Vect3 pi_relative_speed;
 struct Int16Vect3 pi_relative_pose;
 
 /////// FOR GPS INITIALIZATION
@@ -184,10 +187,16 @@ static void data_AM7_abi_in(uint8_t sender_id __attribute__((unused)), struct am
     memcpy(&pi_vision,myam7_data_in_ptr,sizeof(struct am7_data_in));
     // memcpy(&extra_data_in_local,extra_data_in_ptr,255 * sizeof(float));
     airborne_docking_periodic();
-    pi_relative_distance.x = pi_vision.pi_translation_y;
+    pi_relative_distance.x = pi_vision.pi_translation_x;
     pi_relative_distance.y = pi_vision.pi_translation_y;
     pi_relative_distance.z = pi_vision.pi_translation_z;
-    
+    pi_relative_speed.x = pi_vision.pi_translation_speed_x;
+    pi_relative_speed.y = pi_vision.pi_translation_speed_y;
+    pi_relative_speed.z = pi_vision.pi_translation_speed_z;
+    pi_relative_pose.x = pi_vision.pi_rotation_x;
+    pi_relative_pose.y = pi_vision.pi_rotation_y;
+    pi_relative_pose.z = pi_vision.pi_rotation_z;
+    IRLOCK = pi_vision.pivision_flag;
 }
 
 void airborne_docking_init(void)
@@ -197,7 +206,17 @@ void airborne_docking_init(void)
   #endif
   AbiBindMsgAM7_DATA_IN(ABI_BROADCAST, &AM7_in, data_AM7_abi_in);
   // AbiBindMsgRELATIVE_POSE(ORANblahhblhaISUAL_DETECTION_ID, &color_detection_ev, color_detection_cb);  ///// receive  POSE?? in body frame
-   
+  
+  RMAT_ELMT(pitobody_RMAT, 0, 0) = cosf(0.36332);
+  RMAT_ELMT(pitobody_RMAT, 1, 0) = 0;
+  RMAT_ELMT(pitobody_RMAT, 2, 0) = sinf(0.436332);
+  RMAT_ELMT(pitobody_RMAT, 0, 1) = 0;
+  RMAT_ELMT(pitobody_RMAT, 1, 1) = 1.0;
+  RMAT_ELMT(pitobody_RMAT, 2, 1) = 0;
+  RMAT_ELMT(pitobody_RMAT, 0, 2) = -sinf(0.436332);
+  RMAT_ELMT(pitobody_RMAT, 1, 2) = 0;
+  RMAT_ELMT(pitobody_RMAT, 2, 2) = cosf(0.436332);
+
 }
 
 /**
@@ -243,7 +262,7 @@ void airborne_docking_periodic(void)
       if (IRLOCK_confidence >= 0){
         docking_state = TARGET_FOUND_PRECONTACT_SETPOINT;  //CHNAGE TO IF SWITCH ACTIVATED
       }
-
+      
       //for direct rc control horizontal, rotate from body axes to NED (MAYBE IN THE FUTRE REMOVE THE NEED FOR PSI??)
       float psi = stateGetNedToBodyEulers_f()->psi;
       float rc_x = -(radio_control.values[RADIO_PITCH] / 9600.0) * 6.0;
@@ -321,13 +340,16 @@ void processrelativeposegps()
   psi_target = psi + leader_psi_diff;
   psi_target = 0;      // not dealing with heading right now.
 
-  struct FloatRMat *matforrelativeNED = stateGetNedToBodyRMat_f();
-  MAT33_TRANS(ROT_inv, *matforrelativeNED);
+  // struct FloatRMat *matforrelativeNED = stateGetNedToBodyRMat_f();
+  // MAT33_TRANS(ROT_inv, *matforrelativeNED);
 
   /// @brief  PORTION FOR OPTITRACK
-  AC_NED.x = stateGetPositionNed_f()->x;  //in meters
-  AC_NED.y = stateGetPositionNed_f()->y;
-  AC_NED.z = -stateGetPositionNed_f()->z;
+  AC_NED.x = stateGetPositionNed_f()->x *1000;  //in meters
+  AC_NED.y = stateGetPositionNed_f()->y * 1000;
+  AC_NED.z = -stateGetPositionNed_f()->z * 1000;
+  AC_NED_SPEED.x = stateGetSpeedNed_f() ->x * 1000;
+  AC_NED_SPEED.y = stateGetSpeedNed_f() ->y * 1000;
+  AC_NED_SPEED.z = stateGetSpeedNed_f() ->z * 1000;
 
   // // Set the default tracking system position and angle
   //   struct LlaCoor_d tracking_lla;
@@ -349,8 +371,10 @@ void processrelativeposegps()
   prev_error_to_setpoint_NED = error_to_setpoint_NED;
 
   VECT3_DIFF(error_to_setpoint_NED, leader_relative_position_wanted_NED, relative_position_NED);
-  VECT3_DIFF(derrivative_error_to_setpoint_NED, error_to_setpoint_NED, prev_error_to_setpoint_NED);
-  VECT3_SMUL(derrivative_error_to_setpoint_NED, derrivative_error_to_setpoint_NED, running_frequency)  //unfiltered diferntiated error to setpoint
+  VECT3_DIFF(relative_speed_NED, AC_NED_SPEED, LEADER_AC_NED_SPEED);
+  // VECT3_DIFF(derrivative_error_to_setpoint_NED, error_to_setpoint_NED, prev_error_to_setpoint_NED);
+
+  // VECT3_SMUL(derrivative_error_to_setpoint_NED, derrivative_error_to_setpoint_NED, running_frequency)  //unfiltered diferntiated error to setpoint
 
   transversal_error = sqrt((pow(error_to_setpoint_NED.x,2) + pow(error_to_setpoint_NED.y,2)));      //what about Z?
   }
@@ -359,26 +383,29 @@ void processrelativeposegps()
 void processrelativeposevision()
 {
   float psi = stateGetNedToBodyEulers_f()->psi;
-  leader_psi_diff = pi_vision.pi_rotation_z;                               //check if true .z but for psi, check what kind should be used for angles
-  psi_target = psi + leader_psi_diff;                                       
-  psi_target = 0;      // not dealing with heading right now.
-
+ 
   struct FloatRMat *matforrelativeNED = stateGetNedToBodyRMat_f();
   MAT33_TRANS(ROT_inv, *matforrelativeNED);
 
+  leader_psi_diff = pi_relative_pose.z;                               //check if true .z but for psi, check what kind should be used for angles
+  psi_target = psi + leader_psi_diff;                                       
+  psi_target = 0;                                       // not dealing with heading right now.
+
   //MAYBE SHIFT BY HEADING
-  pi_relative_distance.x = pi_vision.pi_translation_x;
-  pi_relative_distance.y = pi_vision.pi_translation_y;
-  pi_relative_distance.z = pi_vision.pi_translation_z;
+  MAT33_VECT3_MUL(pi_relative_distance, pitobody_RMAT, pi_relative_distance); 
+
   MAT33_VECT3_MUL(relative_position_NED, ROT_inv, pi_relative_distance);   //TO USE WITH BFRAME
+  MAT33_VECT3_MUL(relative_speed_NED, ROT_inv, pi_relative_speed); 
+
   leader_relative_position_wanted_NED.x = relative_position_wanted.x * cosf(psi_target) - sinf(psi_target) * relative_position_wanted.y;
   leader_relative_position_wanted_NED.y = relative_position_wanted.y * cosf(psi_target) + sinf(psi_target) * relative_position_wanted.y;
   leader_relative_position_wanted_NED.z = relative_position_wanted.z;
+
   prev_error_to_setpoint_NED = error_to_setpoint_NED;
 
   VECT3_DIFF(error_to_setpoint_NED, leader_relative_position_wanted_NED, relative_position_NED);
-  VECT3_DIFF(derrivative_error_to_setpoint_NED, error_to_setpoint_NED, prev_error_to_setpoint_NED);
-  VECT3_SMUL(derrivative_error_to_setpoint_NED, derrivative_error_to_setpoint_NED, running_frequency)  //unfiltered diferntiated error to setpoint
+  // VECT3_DIFF(derrivative_error_to_setpoint_NED, error_to_setpoint_NED, prev_error_to_setpoint_NED);
+  // VECT3_SMUL(derrivative_error_to_setpoint_NED, derrivative_error_to_setpoint_NED, running_frequency)  //unfiltered diferntiated error to setpoint
 
   transversal_error = sqrt((pow(error_to_setpoint_NED.x,2) + pow(error_to_setpoint_NED.y,2)));      //what about Z?
   }
@@ -425,19 +452,19 @@ VECT3_SMUL(velocity_wanted, error_to_setpoint_NED, velocity_speed_gain);
 
 
 static struct FloatVect3 previous_error_to_velocity_setpoint;
-previous_error_to_velocity_setpoint =  error_to_velocity_setpoint;
+// previous_error_to_velocity_setpoint =  error_to_velocity_setpoint;
 
-VECT3_DIFF(error_to_velocity_setpoint, velocity_wanted, *stateGetSpeedNed_f());
-VECT3_DIFF(derrivative_error_to_velocity_setpoint, error_to_velocity_setpoint, previous_error_to_velocity_setpoint);
-VECT3_SMUL(derrivative_error_to_velocity_setpoint, derrivative_error_to_velocity_setpoint, running_frequency)  //unfiltered diferntiated error to setpoint
+// VECT3_DIFF(error_to_velocity_setpoint, velocity_wanted, *stateGetSpeedNed_f());
+// VECT3_DIFF(derrivative_error_to_velocity_setpoint, error_to_velocity_setpoint, previous_error_to_velocity_setpoint);
+// VECT3_SMUL(derrivative_error_to_velocity_setpoint, derrivative_error_to_velocity_setpoint, running_frequency)  //unfiltered diferntiated error to setpoint
 
 // a_wanted.x = error_to_velocity_setpoint.x * relative_position_P_GAINS.x - derrivative_error_to_velocity_setpoint.x * relative_position_D_GAINS.x;
 // a_wanted.y = error_to_velocity_setpoint.y * relative_position_P_GAINS.y - derrivative_error_to_velocity_setpoint.y * relative_position_D_GAINS.y;
 // a_wanted.z = error_to_velocity_setpoint.z * relative_position_P_GAINS.z - derrivative_error_to_velocity_setpoint.z * relative_position_D_GAINS.z;
 
-a_wanted.x = error_to_setpoint_NED.x * relative_position_P_GAINS.x + derrivative_error_to_setpoint_NED.x * relative_position_D_GAINS.x;
-a_wanted.y = error_to_setpoint_NED.y * relative_position_P_GAINS.y + derrivative_error_to_setpoint_NED.y * relative_position_D_GAINS.y;
-a_wanted.z = error_to_setpoint_NED.z * relative_position_P_GAINS.z + derrivative_error_to_setpoint_NED.z * relative_position_D_GAINS.z;
+a_wanted.x = error_to_setpoint_NED.x * relative_position_P_GAINS.x + relative_speed_NED.x * relative_position_D_GAINS.x;
+a_wanted.y = error_to_setpoint_NED.y * relative_position_P_GAINS.y + relative_speed_NED.y * relative_position_D_GAINS.y;
+a_wanted.z = error_to_setpoint_NED.z * relative_position_P_GAINS.z + relative_speed_NED.z * relative_position_D_GAINS.z;
 
  BoundAbs(a_wanted.x, 6);
  BoundAbs(a_wanted.y, 6);
@@ -461,10 +488,10 @@ static void parse_gps_datalink_small_2(int16_t heading, uint32_t pos_xyz, uint32
   }
   enu_pos.z = (int32_t)(pos_xyz & 0x3FF); // bits 9-0 z position in cm
 
-  LEADER_AC_NED.x = (float) enu_pos.y /100;
-  LEADER_AC_NED.y = (float) enu_pos.x / 100;
-  LEADER_AC_NED.z = (float) -enu_pos.z/ 100;
-
+  LEADER_AC_NED.x = (float) enu_pos.y *10;  // in mm
+  LEADER_AC_NED.y = (float) enu_pos.x * 10;
+  LEADER_AC_NED.z = (float) -enu_pos.z * 10;
+  
 
   // Convert the ENU coordinates to ECEF
   ecef_of_enu_point_i(&gps_leader_AC_datalink.ecef_pos, &ltp_def, &enu_pos);
@@ -485,6 +512,10 @@ static void parse_gps_datalink_small_2(int16_t heading, uint32_t pos_xyz, uint32
   if (enu_speed.z & 0x200) {
     enu_speed.z |= 0xFFFFFC00;  // sign extend for twos complements
   }
+
+  LEADER_AC_NED_SPEED.x = (float) enu_speed.y * 10;
+  LEADER_AC_NED_SPEED.y = (float) enu_speed.x * 10;
+  LEADER_AC_NED_SPEED.z = (float) enu_speed.z * 10;
 
   VECT3_NED_OF_ENU(gps_leader_AC_datalink.ned_vel, enu_speed);
   SetBit(gps_leader_AC_datalink.valid_fields, GPS_VALID_VEL_NED_BIT);
