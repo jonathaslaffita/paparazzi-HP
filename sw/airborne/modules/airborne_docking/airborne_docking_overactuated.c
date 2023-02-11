@@ -89,7 +89,7 @@ struct FloatVect3 relative_position_D_GAINS = {1.8,1.8,1.8};
 float extern velocity_speed_gain = 2.0;       // relative velocity GAIN
 float relative_accel_gain;                        //raltive acceleration GAIN
 float heading_setpoint;             // heading setpoint 
-float transversal_error;
+float transversal_error = 2000;
 // float min_error;
 // float max_error;
 struct FloatMat33 ROT_inv;
@@ -113,13 +113,14 @@ float psi_target;
 struct FloatVect3 relative_position_bframe;
 struct FloatVect3 leader_relative_position_wanted_NED;
 struct FloatVect3 velocity_wanted;
-struct FloatMat33 pitobody_RMAT;
+// struct FloatMat33 pitobody_RMAT;
 // struct FloatVect3 error_to_velocity_setpoint;
 // struct FloatVect3 derrivative_error_to_velocity_setpoint;
 // float running_frequency = 5.0;
 struct Int16Vect3 pi_relative_distance;
 struct Int16Vect3 pi_relative_speed;
 struct Int16Vect3 pi_relative_pose;
+struct FloatVect3 pi_relative_distance_body_frame;
 
 /////// FOR GPS INITIALIZATION
 // struct LtpDef_i ltp_def;
@@ -134,7 +135,7 @@ static abi_event AM7_in;
 //initializes some global variables
 int32_t IRLOCK = 1;         //for now it is forced at +1
 int32_t IRLOCK_confidence = -8;
-docking_state = LOOKING_MANUAL;   // current state in state machine  enum docking_state_t  removed from the front
+docking_state = DROPOUT_USED_GPS;   // current state in state machine  enum docking_state_t  removed from the front
 // static abi_event qwe_ev;
 int32_t ALIVE = 0;
 // DECLARATIONS OF FORMULAE
@@ -151,12 +152,12 @@ static void send_airborne_docking(struct transport_tx *trans, struct link_device
 {
   pprz_msg_send_AIRBORNE_DOCKING(trans, dev, AC_ID,
                               &advance,
-                              // &LEADER_AC_NED.x,
-                              // &LEADER_AC_NED.y,
-                              // &LEADER_AC_NED.z,
-                              // &AC_NED.x,
-                              // &AC_NED.y,
-                              // &AC_NED.z,
+                              &LEADER_AC_NED.x,
+                              &LEADER_AC_NED.y,
+                              &LEADER_AC_NED.z,
+                              &AC_NED.x,
+                              &AC_NED.y,
+                              &AC_NED.z,
                               &relative_position_NED.x,
                               &relative_position_NED.y,
                               &relative_position_NED.z,
@@ -178,6 +179,9 @@ static void send_airborne_docking(struct transport_tx *trans, struct link_device
                               &pi_relative_distance.x,
                               &pi_relative_distance.y,
                               &pi_relative_distance.z
+                              // &pi_relative_distance_body_frame.x,
+                              // &pi_relative_distance_body_frame.y,
+                              // &pi_relative_distance_body_frame.z
                               );
 }
 #endif
@@ -207,16 +211,17 @@ void airborne_docking_init(void)
   AbiBindMsgAM7_DATA_IN(ABI_BROADCAST, &AM7_in, data_AM7_abi_in);
   // AbiBindMsgRELATIVE_POSE(ORANblahhblhaISUAL_DETECTION_ID, &color_detection_ev, color_detection_cb);  ///// receive  POSE?? in body frame
   
-  RMAT_ELMT(pitobody_RMAT, 0, 0) = cosf(0.36332);
-  RMAT_ELMT(pitobody_RMAT, 1, 0) = 0;
-  RMAT_ELMT(pitobody_RMAT, 2, 0) = sinf(0.436332);
-  RMAT_ELMT(pitobody_RMAT, 0, 1) = 0;
-  RMAT_ELMT(pitobody_RMAT, 1, 1) = 1.0;
-  RMAT_ELMT(pitobody_RMAT, 2, 1) = 0;
-  RMAT_ELMT(pitobody_RMAT, 0, 2) = -sinf(0.436332);
-  RMAT_ELMT(pitobody_RMAT, 1, 2) = 0;
-  RMAT_ELMT(pitobody_RMAT, 2, 2) = cosf(0.436332);
+  // RMAT_ELMT(pitobody_RMAT, 0, 0) = cosf(0.36332);
+  // RMAT_ELMT(pitobody_RMAT, 1, 0) = 0;
+  // RMAT_ELMT(pitobody_RMAT, 2, 0) = sinf(0.436332);
+  // RMAT_ELMT(pitobody_RMAT, 0, 1) = 0;
+  // RMAT_ELMT(pitobody_RMAT, 1, 1) = 1.0;
+  // RMAT_ELMT(pitobody_RMAT, 2, 1) = 0;
+  // RMAT_ELMT(pitobody_RMAT, 0, 2) = -sinf(0.436332);
+  // RMAT_ELMT(pitobody_RMAT, 1, 2) = 0;
+  // RMAT_ELMT(pitobody_RMAT, 2, 2) = cosf(0.436332);
 
+  
 }
 
 /**
@@ -239,7 +244,7 @@ void airborne_docking_periodic(void)
     IRLOCK_confidence ++; 
   }
     // bound obstacle_free_confidence
-  Bound(IRLOCK_confidence, -10, 10);
+  Bound(IRLOCK_confidence, -10, 50);
 
 
     // if no stability reached, keep trying to get to precontact.
@@ -392,7 +397,7 @@ void processrelativeposevision()
   psi_target = 0;                                       // not dealing with heading right now.
 
   //MAYBE SHIFT BY HEADING
-  MAT33_VECT3_MUL(pi_relative_distance, pitobody_RMAT, pi_relative_distance); 
+  // MAT33_VECT3_MUL(pi_relative_distance_body_frame, pitobody_RMAT, pi_relative_distance); 
 
   MAT33_VECT3_MUL(relative_position_NED, ROT_inv, pi_relative_distance);   //TO USE WITH BFRAME
   MAT33_VECT3_MUL(relative_speed_NED, ROT_inv, pi_relative_speed); 
@@ -449,7 +454,6 @@ relative_position_D_GAINS.y = relative_position_D_GAIN_Y;
 relative_position_D_GAINS.z = relative_position_D_GAIN_Z;
 
 VECT3_SMUL(velocity_wanted, error_to_setpoint_NED, velocity_speed_gain);
-
 
 static struct FloatVect3 previous_error_to_velocity_setpoint;
 // previous_error_to_velocity_setpoint =  error_to_velocity_setpoint;

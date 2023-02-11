@@ -37,8 +37,8 @@
       <message name="AIRBORNE_DOCKING"            period="0.1"/>
       <message name="GUIDANCE_INDI"            period="0.1"/>
       <!-- <message name="SYS_MON"                    period="0.1"/> -->
-      <message name="AM7_IN"        	       period=".2"/>
-      <message name="AM7_OUT"        	       period=".2"/>
+      <message name="AM7_IN"        	       period="0.1"/>
+      <!-- <message name="AM7_OUT"        	       period=".2"/> -->
     </mode>
 
     <mode name="ppm">
